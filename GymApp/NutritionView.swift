@@ -35,6 +35,7 @@ struct NutritionView: View {
     @Query private var measurements: [MeasurementEntry]
     @Query(sort: \FoodLog.date) private var logs: [FoodLog]
     @Query(sort: \WaterLog.date) private var water: [WaterLog]
+    @Query(sort: \WorkoutSession.start) private var sessions: [WorkoutSession]
     @State private var day = Calendar.current.startOfDay(for: .now)
     @State private var addingMeal: Meal?
     @State private var editing: FoodLog?
@@ -46,6 +47,10 @@ struct NutritionView: View {
     private var dayLogs: [FoodLog] { logs.filter { cal.isSameDay($0.date, day) } }
     private var dayWater: Double { water.filter { cal.isSameDay($0.date, day) }.map(\.ml).reduce(0, +) }
     private var totals: Nutrients { dayLogs.map(\.nutrients).total }
+    /// Calorias gastas em treinos no dia escolhido.
+    private var workoutKcal: Double {
+        sessions.filter { !$0.isActive && cal.isSameDay($0.start, day) }.map(WorkoutMath.kcal).reduce(0, +)
+    }
 
     private var targets: NutritionTargets {
         guard let ctx = AnalysisContext(profile: profiles.first, entries: weights, measurements: measurements)
@@ -99,13 +104,15 @@ struct NutritionView: View {
 
     private var summaryCard: some View {
         let t = targets, n = totals
-        let remaining = t.kcal - n.kcal
+        let burned = workoutKcal
+        let goal = t.kcal + (WorkoutPrefs.shared.addWorkoutKcal ? burned : 0)
+        let remaining = goal - n.kcal
         return Card {
             VStack(spacing: 16) {
                 HStack(spacing: 20) {
                     ZStack {
-                        ProgressRing(progress: n.kcal / t.kcal, lineWidth: 14,
-                                     colors: n.kcal > t.kcal * 1.1 ? [Theme.warm, Theme.danger] : nil)
+                        ProgressRing(progress: n.kcal / goal, lineWidth: 14,
+                                     colors: n.kcal > goal * 1.1 ? [Theme.warm, Theme.danger] : nil)
                         VStack(spacing: 0) {
                             Text(abs(remaining).fmt(0)).font(.title2.bold()).contentTransition(.numericText())
                             Text(remaining >= 0 ? "restantes" : "acima").font(.caption2).foregroundStyle(.secondary)
@@ -113,9 +120,10 @@ struct NutritionView: View {
                     }
                     .frame(width: 120, height: 120)
                     VStack(alignment: .leading, spacing: 10) {
-                        kcalRow("Meta", t.kcal, "target")
+                        kcalRow("Meta", goal, "target")
                         kcalRow("Consumido", n.kcal, "fork.knife")
-                        kcalRow("Refeições", Double(Set(dayLogs.map(\.mealRaw)).count), "list.bullet", unit: "")
+                        kcalRow(WorkoutPrefs.shared.addWorkoutKcal ? "Treino (somado)" : "Gasto no treino", burned, "dumbbell.fill")
+                        kcalRow("Saldo", n.kcal - burned, "plusminus")
                     }
                 }
                 HStack(spacing: 12) {

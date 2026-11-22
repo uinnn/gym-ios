@@ -7,6 +7,7 @@ struct DashboardView: View {
     @Query private var profiles: [UserProfile]
     @Query(sort: \WeightEntry.date, order: .reverse) private var entries: [WeightEntry]
     @Query private var measurements: [MeasurementEntry]
+    @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
     @State private var report: WeightEntry?
     @State private var metric: MetricID?
     @State private var showAddWeight = false
@@ -230,6 +231,12 @@ struct DashboardView: View {
                         Text("\(a.input.kg * 0.035, specifier: "%.1f") L").font(.subheadline.bold())
                         Text("Água").font(.caption2).foregroundStyle(.secondary)
                     }
+                }
+                let burned = sessions.filter { !$0.isActive && Calendar.current.isDateInToday($0.start) }
+                    .map(WorkoutMath.kcal).reduce(0, +)
+                if burned > 0 {
+                    Label("Treino hoje: \(burned.fmt(0)) kcal gastas", systemImage: "dumbbell.fill")
+                        .font(.caption.bold()).foregroundStyle(Theme.warm)
                 }
                 Text("Gasto total \(a.tdee.fmt(0)) kcal · objetivo: \(a.input.goal.label.lowercased())")
                     .font(.caption).foregroundStyle(.secondary)

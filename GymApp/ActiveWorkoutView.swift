@@ -400,6 +400,7 @@ struct WorkoutSummaryView: View {
                             MetricTile(title: "Calorias", value: WorkoutMath.kcal(session).fmt(0), unit: "kcal", icon: "flame.fill", tint: Theme.warm)
                         }
                         .appear(0.1)
+                        compareCard(past).appear(0.15)
                         if !prs.isEmpty {
                             Card {
                                 VStack(alignment: .leading, spacing: 8) {
@@ -455,6 +456,39 @@ struct WorkoutSummaryView: View {
             .toolbar { Button("Concluir") { dismiss() }.bold() }
             .onAppear { withAnimation(.spring(duration: 0.8, bounce: 0.5)) { appeared = true } }
             .sensoryFeedback(.success, trigger: appeared) { _, _ in ThemeStore.shared.haptics }
+        }
+    }
+
+    /// Compara com a última vez que fez a mesma rotina.
+    @ViewBuilder private func compareCard(_ past: [WorkoutSession]) -> some View {
+        if let prev = past.filter({ $0.name == session.name && !$0.isActive }).max(by: { $0.start < $1.start }) {
+            let v1 = WorkoutMath.volume(session), v0 = WorkoutMath.volume(prev)
+            let s1 = WorkoutMath.setsCount(session), s0 = WorkoutMath.setsCount(prev)
+            let pct = v0 > 0 ? (v1 - v0) / v0 * 100 : 0
+            Card {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Comparado com a última vez", systemImage: "arrow.left.arrow.right").font(.headline)
+                    HStack {
+                        delta("Volume", pct, "%")
+                        Spacer()
+                        delta("Séries", Double(s1 - s0), "")
+                        Spacer()
+                        delta("Duração", (session.duration - prev.duration) / 60, " min", invert: true)
+                    }
+                    Text(pct >= 5 ? "Você levantou \(Int(pct))% mais que da última vez. Evolução real! 🚀"
+                         : (pct > -5 ? "Mesmo nível da última sessão. Manter também é vitória — tente +1 rep na próxima."
+                                     : "Um pouco abaixo da última vez. Dias assim acontecem: sono, comida e estresse influenciam."))
+                        .font(.callout)
+                }
+            }
+        }
+    }
+
+    private func delta(_ t: String, _ v: Double, _ unit: String, invert: Bool = false) -> some View {
+        let good = invert ? v <= 0 : v >= 0
+        return VStack(spacing: 2) {
+            Text("\(v.signed(0))\(unit)").font(.headline.monospacedDigit()).foregroundStyle(good ? Theme.good : Theme.warm)
+            Text(t).font(.caption2).foregroundStyle(.secondary)
         }
     }
 }

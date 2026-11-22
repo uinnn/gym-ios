@@ -41,6 +41,7 @@ struct ProfileView: View {
     @Query private var measurements: [MeasurementEntry]
     @Bindable private var store = ThemeStore.shared
     @Bindable private var reminders = ReminderStore.shared
+    @Bindable private var workout = WorkoutPrefs.shared
     @State private var showScanner = false
     @State private var confirmReset = false
 
@@ -65,6 +66,11 @@ struct ProfileView: View {
                         Label("Abrir relatório após pesar", systemImage: "doc.text.magnifyingglass")
                     }
                     Toggle(isOn: $store.haptics) { Label("Vibração", systemImage: "iphone.radiowaves.left.and.right") }
+                }
+                Section {
+                    Toggle(isOn: $workout.addWorkoutKcal) { Label("Somar calorias do treino à meta", systemImage: "flame.fill") }
+                } header: { Text("Treino e alimentação") } footer: {
+                    Text("Quando ligado, as calorias gastas nos treinos do dia aumentam sua meta de alimentação. Nesse caso, prefira o nível de atividade \"Sedentário\" ou \"Leve\" no perfil para não contar o exercício duas vezes.")
                 }
                 Section {
                     Toggle(isOn: $reminders.enabled.animation()) { Label("Lembrete diário", systemImage: "bell.badge.fill") }

@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftData
 
 enum Muscle: String, CaseIterable, Identifiable, Codable {
@@ -177,6 +178,8 @@ final class WorkoutRoutine {
     var order: Int = 0
     var data: Data = Data()
     var createdAt: Date = Date.now
+    /// Dia da semana (Calendar: 1 = domingo … 7 = sábado). 0 = sem dia.
+    var weekday: Int = 0
 
     init(name: String, icon: String = "dumbbell.fill", order: Int = 0, items: [RoutineItem]) {
         self.name = name
@@ -194,6 +197,99 @@ final class WorkoutRoutine {
         var seen: [Muscle] = []
         for m in items.compactMap(\.exercise).flatMap(\.primary) where !seen.contains(m) { seen.append(m) }
         return seen
+    }
+}
+
+extension WorkoutRoutine {
+    var totalSets: Int { items.map(\.sets).reduce(0, +) }
+
+    /// Duração estimada: ~40 s por série + descanso.
+    var estimatedMinutes: Double {
+        items.map { i -> Double in
+            if i.exercise?.kind == .cardio || i.exercise?.kind == .timed { return Double(i.repsMin * i.sets) }
+            return Double(i.sets) * (40 + Double(i.restSeconds)) / 60
+        }.reduce(0, +)
+    }
+
+    func estimatedKcal(bodyKg: Double) -> Double {
+        let ex = items.compactMap(\.exercise)
+        guard !ex.isEmpty else { return 0 }
+        let met = ex.map(\.met).reduce(0, +) / Double(ex.count)
+        return met * bodyKg * estimatedMinutes / 60
+    }
+
+    var muscleSets: [(Muscle, Double)] {
+        var out: [Muscle: Double] = [:]
+        for i in items {
+            guard let x = i.exercise, x.kind != .cardio else { continue }
+            for m in x.primary { out[m, default: 0] += Double(i.sets) }
+            for m in x.secondary { out[m, default: 0] += Double(i.sets) * 0.5 }
+        }
+        return out.sorted { $0.value > $1.value }.map { ($0.key, $0.value) }
+    }
+}
+
+enum Weekday {
+    /// Ordem de segunda a domingo (valores do Calendar).
+    static let mondayFirst = [2, 3, 4, 5, 6, 7, 1]
+    static func name(_ d: Int) -> String {
+        ["", "Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"][min(max(d, 0), 7)]
+    }
+    static func short(_ d: Int) -> String {
+        ["", "Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"][min(max(d, 0), 7)]
+    }
+    static var today: Int { Calendar.current.component(.weekday, from: .now) }
+}
+
+/// Exercícios favoritos e preferências de treino (salvos no aparelho).
+@Observable
+final class WorkoutPrefs {
+    static let shared = WorkoutPrefs()
+    private let d = UserDefaults.standard
+
+    var favorites: Set<String> { didSet { d.set(Array(favorites), forKey: "favExercises") } }
+    var addWorkoutKcal: Bool { didSet { d.set(addWorkoutKcal, forKey: "addWorkoutKcal") } }
+    // últimas escolhas do gerador
+    var goalRaw: String { didSet { d.set(goalRaw, forKey: "genGoal") } }
+    var levelRaw: String { didSet { d.set(levelRaw, forKey: "genLevel") } }
+    var placeRaw: String { didSet { d.set(placeRaw, forKey: "genPlace") } }
+    var days: [Int] { didSet { d.set(days, forKey: "genDays") } }
+
+    private init() {
+        favorites = Set(d.stringArray(forKey: "favExercises") ?? [])
+        addWorkoutKcal = d.object(forKey: "addWorkoutKcal") as? Bool ?? true
+        goalRaw = d.string(forKey: "genGoal") ?? "hypertrophy"
+        levelRaw = d.string(forKey: "genLevel") ?? "beginner"
+        placeRaw = d.string(forKey: "genPlace") ?? "gym"
+        days = (d.array(forKey: "genDays") as? [Int]) ?? [2, 4, 6]
+    }
+
+    func toggle(_ id: String) {
+        if favorites.contains(id) { favorites.remove(id) } else { favorites.insert(id) }
+    }
+}
+
+enum ExerciseAlternatives {
+    static func allowed(_ eq: Equipment, home: Bool) -> Bool {
+        !home || [.dumbbell, .bodyweight, .kettlebell, .band, .other].contains(eq)
+    }
+
+    /// Exercícios equivalentes (mesmo músculo principal e tipo).
+    static func options(for id: String, home: Bool = false) -> [Exercise] {
+        guard let x = ExerciseCatalog.byID[id], let m = x.primary.first else { return [] }
+        return ExerciseCatalog.all.filter {
+            $0.id != id && $0.primary.first == m && ($0.kind == .cardio) == (x.kind == .cardio)
+                && allowed($0.equipment, home: home)
+        }
+    }
+
+    /// Sorteia um substituto, com 3x mais chance para favoritos.
+    static func random(for id: String, home: Bool = false, excluding: Set<String> = []) -> Exercise? {
+        let opts = options(for: id, home: home).filter { !excluding.contains($0.id) }
+        guard !opts.isEmpty else { return nil }
+        let fav = WorkoutPrefs.shared.favorites
+        let pool = opts.flatMap { fav.contains($0.id) ? [$0, $0, $0] : [$0] }
+        return pool.randomElement()
     }
 }
 

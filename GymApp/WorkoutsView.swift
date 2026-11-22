@@ -12,14 +12,24 @@ struct WorkoutsView: View {
     @State private var showGenerator = false
     @State private var showStats = false
     @State private var detail: WorkoutSession?
+    @State private var viewing: WorkoutRoutine?
 
     private var finished: [WorkoutSession] { sessions.filter { !$0.isActive } }
     private var running: WorkoutSession? { sessions.first { $0.isActive } }
     private var bodyKg: Double { weights.first?.kg ?? 70 }
 
-    /// Próxima rotina na sequência (depois da última feita).
+    /// Rotina de hoje (se ainda não feita) ou a próxima da semana; sem dias, segue a sequência.
     private var nextRoutine: WorkoutRoutine? {
         guard !routines.isEmpty else { return nil }
+        let scheduled = routines.filter { $0.weekday != 0 }
+        if !scheduled.isEmpty {
+            let today = Weekday.today
+            let doneToday = finished.contains { Calendar.current.isDateInToday($0.start) }
+            for offset in (doneToday ? 1 : 0)..<8 {
+                let d = (today - 1 + offset) % 7 + 1
+                if let r = scheduled.first(where: { $0.weekday == d }) { return r }
+            }
+        }
         guard let last = finished.first, let i = routines.firstIndex(where: { $0.name == last.name }) else { return routines.first }
         return routines[(i + 1) % routines.count]
     }
@@ -54,6 +64,7 @@ struct WorkoutsView: View {
             }
             .fullScreenCover(item: $active) { ActiveWorkoutView(session: $0) }
             .sheet(item: $editing) { RoutineEditorView(routine: $0) }
+            .sheet(item: $viewing) { r in RoutineDetailView(routine: r) { start(r) } }
             .sheet(isPresented: $showGenerator) { ProgramGeneratorSheet() }
             .sheet(isPresented: $showStats) { WorkoutStatsView() }
             .sheet(item: $detail) { s in SessionDetailView(session: s) { start(copyOf: $0) } }
@@ -153,8 +164,31 @@ struct WorkoutsView: View {
                     Spacer()
                     mini("Séries", "\(week.map(WorkoutMath.setsCount).reduce(0, +))")
                 }
+                motivation(week: week, weekStart: weekStart)
             }
         }
+    }
+
+    /// Comparação com a semana passada até o mesmo dia, para motivar.
+    @ViewBuilder private func motivation(week: [WorkoutSession], weekStart: Date) -> some View {
+        let elapsed = Date.now.timeIntervalSince(weekStart)
+        let lastStart = weekStart.addingTimeInterval(-7 * 86400)
+        let last = finished.filter { $0.start >= lastStart && $0.start < lastStart.addingTimeInterval(elapsed) }
+        let v1 = week.map(WorkoutMath.volume).reduce(0, +), v0 = last.map(WorkoutMath.volume).reduce(0, +)
+        let s1 = week.map(WorkoutMath.setsCount).reduce(0, +), s0 = last.map(WorkoutMath.setsCount).reduce(0, +)
+        let msg: (String, String, Color) = {
+            if week.isEmpty && last.isEmpty { return ("figure.walk", "Comece hoje: o melhor treino é o que você faz.", Theme.accent) }
+            if v0 > 0 {
+                let p = (v1 - v0) / v0 * 100
+                if p >= 5 { return ("arrow.up.right.circle.fill", "Você está \(Int(p))% acima da semana passada no volume. Continue assim! 🔥", Theme.good) }
+                if p > -5 { return ("equal.circle.fill", "No mesmo ritmo da semana passada (\(s1) vs \(s0) séries). Constância é tudo.", Theme.accent2) }
+                return ("arrow.down.right.circle.fill", "\(Int(-p))% abaixo da semana passada até aqui. Ainda dá tempo de virar o jogo!", Theme.warm)
+            }
+            return ("star.circle.fill", "\(week.count) treino(s) esta semana. Cada um conta! 💪", Theme.excellent)
+        }()
+        Label(msg.1, systemImage: msg.0).font(.caption.bold()).foregroundStyle(msg.2)
+            .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(msg.2.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func mini(_ t: String, _ v: String) -> some View {
@@ -171,7 +205,8 @@ struct WorkoutsView: View {
                     Image(systemName: r.icon).font(.title2).foregroundStyle(.white)
                         .frame(width: 54, height: 54).background(Theme.gradient, in: RoundedRectangle(cornerRadius: 16))
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Próximo treino").font(.caption).foregroundStyle(.secondary)
+                        Text(r.weekday == Weekday.today ? "Treino de hoje" : (r.weekday == 0 ? "Próximo treino" : "Próximo: \(Weekday.name(r.weekday))"))
+                            .font(.caption).foregroundStyle(.secondary)
                         Text(r.name).font(.headline).foregroundStyle(.primary)
                         Text("\(r.items.count) exercícios · \(r.muscles.prefix(3).map(\.label).joined(separator: ", "))")
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -206,54 +241,115 @@ struct WorkoutsView: View {
     }
 
     @ViewBuilder private var routinesSection: some View {
-        SectionHeader(title: "Minhas rotinas", icon: "list.bullet.rectangle.fill")
+        SectionHeader(title: "Semana de treino", icon: "calendar")
         if routines.isEmpty {
             Card {
                 VStack(spacing: 12) {
                     Image(systemName: "wand.and.stars").font(.system(size: 40)).foregroundStyle(Theme.gradient)
                     Text("Monte seu programa em segundos").font(.headline)
-                    Text("Escolha objetivo, nível e dias por semana e o app cria todas as rotinas com séries, repetições e descanso.")
+                    Text("Escolha objetivo, nível e os dias da semana e o app cria todas as rotinas com séries, repetições e descanso.")
                         .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Button("Gerar programa") { showGenerator = true }.buttonStyle(.borderedProminent).tint(Theme.accent)
                 }
                 .frame(maxWidth: .infinity)
             }
-        }
-        ForEach(Array(routines.enumerated()), id: \.element.id) { i, r in
-            Button { start(r) } label: {
-                Card {
-                    HStack(spacing: 12) {
-                        Image(systemName: r.icon).foregroundStyle(Theme.accent)
-                            .frame(width: 40, height: 40).background(Theme.accent.opacity(0.15), in: Circle())
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(r.name).font(.headline).foregroundStyle(.primary)
-                            Text(r.items.compactMap { $0.exercise?.name }.prefix(4).joined(separator: " · "))
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            if let last = finished.first(where: { $0.name == r.name }) {
-                                Text("Último: \(last.start.formatted(.relative(presentation: .named)))")
-                                    .font(.caption2).foregroundStyle(Theme.accent)
-                            }
-                        }
-                        Spacer()
-                        Image(systemName: "play.fill").foregroundStyle(Theme.accent)
-                    }
-                }
+        } else {
+            ForEach(Array(Weekday.mondayFirst.enumerated()), id: \.element) { i, day in
+                dayRow(day).appear(0.12 + Double(i) * 0.03)
             }
-            .buttonStyle(PressableStyle())
-            .contextMenu {
-                Button("Editar", systemImage: "pencil") { editing = r }
-                Button("Duplicar", systemImage: "plus.square.on.square") {
-                    context.insert(WorkoutRoutine(name: r.name + " (cópia)", icon: r.icon, order: routines.count, items: r.items))
-                }
-                Button("Apagar", systemImage: "trash", role: .destructive) { context.delete(r) }
+            let unassigned = routines.filter { $0.weekday == 0 }
+            if !unassigned.isEmpty {
+                SectionHeader(title: "Sem dia definido", icon: "tray.fill")
+                ForEach(unassigned) { routineCard($0) }
             }
-            .appear(0.15 + Double(i) * 0.03)
-        }
-        if !routines.isEmpty {
-            Text("Toque para começar · toque e segure para editar").font(.caption2).foregroundStyle(.secondary)
+            HStack {
+                Button { showGenerator = true } label: { Label("Gerar novo programa", systemImage: "wand.and.stars") }
+                Spacer()
+                Button { newRoutine() } label: { Label("Nova rotina", systemImage: "plus") }
+            }
+            .font(.subheadline.bold())
+            Text("Toque para ver · toque e segure para mover de dia, editar ou apagar").font(.caption2).foregroundStyle(.secondary)
         }
     }
 
+    private func dayRow(_ day: Int) -> some View {
+        let list = routines.filter { $0.weekday == day }
+        let isToday = day == Weekday.today
+        let cal = Calendar.current
+        let weekStart = cal.dateInterval(of: .weekOfYear, for: .now)?.start ?? .now
+        let doneThisWeek = finished.contains { $0.start >= weekStart && cal.component(.weekday, from: $0.start) == day }
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 2) {
+                Text(Weekday.short(day)).font(.caption.bold())
+                    .foregroundStyle(isToday ? .white : .secondary)
+                    .frame(width: 44, height: 28)
+                    .background(isToday ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(.clear), in: Capsule())
+                if doneThisWeek { Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(Theme.good) }
+            }
+            .padding(.top, 14)
+            if list.isEmpty {
+                HStack {
+                    Image(systemName: "moon.zzz.fill").foregroundStyle(.secondary)
+                    Text("Descanso").font(.subheadline).foregroundStyle(.secondary)
+                    Spacer()
+                    Menu {
+                        ForEach(routines) { r in
+                            Button("\(r.name)\(r.weekday == 0 ? "" : " (\(Weekday.short(r.weekday)))")") { move(r, to: day) }
+                        }
+                    } label: { Image(systemName: "plus.circle").foregroundStyle(Theme.accent) }
+                }
+                .padding(14)
+                .background(RoundedRectangle(cornerRadius: 18).strokeBorder(.quaternary, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+            } else {
+                VStack(spacing: 8) { ForEach(list) { routineCard($0) } }
+            }
+        }
+    }
+
+    private func routineCard(_ r: WorkoutRoutine) -> some View {
+        Button { viewing = r } label: {
+            Card {
+                HStack(spacing: 12) {
+                    Image(systemName: r.icon).foregroundStyle(Theme.accent)
+                        .frame(width: 40, height: 40).background(Theme.accent.opacity(0.15), in: Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(r.name).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                        Text("\(r.items.count) exercícios · ~\(Int(r.estimatedMinutes)) min · \(r.muscles.prefix(3).map(\.label).joined(separator: ", "))")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                    Button { start(r) } label: {
+                        Image(systemName: "play.circle.fill").font(.title).foregroundStyle(Theme.gradient)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .buttonStyle(PressableStyle())
+        .contextMenu {
+            Menu("Mover para…", systemImage: "calendar") {
+                ForEach(Weekday.mondayFirst, id: \.self) { d in
+                    Button(Weekday.name(d)) { move(r, to: d) }.disabled(d == r.weekday)
+                }
+                Button("Sem dia") { move(r, to: 0) }
+            }
+            Button("Ver", systemImage: "eye") { viewing = r }
+            Button("Editar", systemImage: "pencil") { editing = r }
+            Button("Duplicar", systemImage: "plus.square.on.square") {
+                context.insert(WorkoutRoutine(name: r.name + " (cópia)", icon: r.icon, order: routines.count, items: r.items))
+            }
+            Button("Apagar", systemImage: "trash", role: .destructive) { context.delete(r) }
+        }
+    }
+
+    /// Move a rotina para o dia; se o dia já tiver rotina, elas trocam de dia.
+    private func move(_ r: WorkoutRoutine, to day: Int) {
+        withAnimation(.spring(duration: 0.4)) {
+            let old = r.weekday
+            if day != 0 { for other in routines where other.weekday == day && other !== r { other.weekday = old } }
+            r.weekday = day
+        }
+    }
     @ViewBuilder private var historySection: some View {
         SectionHeader(title: "Histórico", icon: "clock.arrow.circlepath")
         ForEach(finished.prefix(15)) { s in

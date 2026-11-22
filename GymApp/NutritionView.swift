@@ -40,7 +40,7 @@ struct NutritionView: View {
     @State private var editing: FoodLog?
     @State private var showPlan = false
     @State private var showStats = false
-    @State private var showMicros = false
+    @State private var nutrientDetail: NutrientID?
 
     private var cal: Calendar { Calendar.current }
     private var dayLogs: [FoodLog] { logs.filter { cal.isSameDay($0.date, day) } }
@@ -91,6 +91,7 @@ struct NutritionView: View {
             .sheet(item: $editing) { EditLogSheet(log: $0) }
             .sheet(isPresented: $showPlan) { MealPlanView(day: day, targets: targets) }
             .sheet(isPresented: $showStats) { NutritionStatsView() }
+            .sheet(item: $nutrientDetail) { NutrientDetailView(id: $0) }
         }
     }
 
@@ -179,10 +180,7 @@ struct NutritionView: View {
                         .contextMenu {
                             Button("Editar", systemImage: "pencil") { editing = log }
                             Button("Duplicar", systemImage: "plus.square.on.square") {
-                                let c = FoodLog(date: log.date, meal: log.meal,
-                                                food: FoodItem(id: log.foodID, name: log.name, category: "",
-                                                               per100: log.nutrients.scaled(100 / max(log.grams, 1))),
-                                                grams: log.grams)
+                                let c = FoodLog(date: log.date, meal: log.meal, food: log.asFood, grams: log.grams)
                                 context.insert(c)
                             }
                             Button("Apagar", systemImage: "trash", role: .destructive) {
@@ -198,52 +196,8 @@ struct NutritionView: View {
     // MARK: Micronutrientes
 
     private var microsCard: some View {
-        let n = totals, t = targets
-        let rows: [(String, Double, Double, String, Bool)] = [   // nome, valor, meta, unidade, é limite máximo
-            ("Sódio", n.sodium, t.sodiumMax, "mg", true),
-            ("Açúcar", n.sugar, t.sugarMax, "g", true),
-            ("Gordura saturada", n.saturated, t.saturatedMax, "g", true),
-            ("Colesterol", n.cholesterol, t.cholesterolMax, "mg", true),
-            ("Cálcio", n.calcium, t.calcium, "mg", false),
-            ("Ferro", n.iron, t.iron, "mg", false),
-            ("Potássio", n.potassium, t.potassium, "mg", false),
-            ("Magnésio", n.magnesium, t.magnesium, "mg", false),
-            ("Vitamina C", n.vitaminC, t.vitaminC, "mg", false),
-            ("Zinco", n.zinc, t.zinc, "mg", false),
-        ]
-        return Card {
-            VStack(alignment: .leading, spacing: 12) {
-                Button {
-                    withAnimation(.spring) { showMicros.toggle() }
-                } label: {
-                    HStack {
-                        Label("Micronutrientes e limites", systemImage: "atom").font(.headline)
-                        Spacer()
-                        Image(systemName: "chevron.down").rotationEffect(.degrees(showMicros ? 180 : 0))
-                    }
-                    .foregroundStyle(.primary)
-                }
-                .buttonStyle(.plain)
-                if showMicros {
-                    ForEach(rows, id: \.0) { name, v, goal, unit, isMax in
-                        let p = v / max(goal, 0.001)
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(name).font(.subheadline)
-                                Spacer()
-                                Text("\(v.fmt(v < 10 ? 1 : 0)) / \(goal.fmt(0)) \(unit)")
-                                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                            }
-                            ProgressBar(progress: p, tint: isMax ? (p > 1 ? Theme.danger : Theme.warm)
-                                                                 : (p >= 1 ? Theme.good : Theme.accent2), height: 5)
-                        }
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                    Text("Limites máximos em laranja/vermelho (OMS); metas de ingestão em azul/verde (IOM). Açúcar só é contado em produtos do Open Food Facts.")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-        }
+        NutrientsDayCard(n: totals, m: dayLogs.compactMap(\.micros).total,
+                         ctx: NutrientContext.make(profiles.first, weights, measurements)) { nutrientDetail = $0 }
     }
 
     private func copyYesterday() {
@@ -251,9 +205,7 @@ struct NutritionView: View {
         let src = logs.filter { cal.isSameDay($0.date, y) }
         for l in src {
             let date = cal.date(byAdding: .day, value: 1, to: l.date) ?? day
-            let food = FoodItem(id: l.foodID, name: l.name, category: "",
-                                per100: l.nutrients.scaled(100 / max(l.grams, 1)))
-            context.insert(FoodLog(date: date, meal: l.meal, food: food, grams: l.grams))
+            context.insert(FoodLog(date: date, meal: l.meal, food: l.asFood, grams: l.grams))
         }
     }
 }
@@ -477,7 +429,7 @@ struct EditLogSheet: View {
     @State private var meal: Meal = .lunch
 
     var body: some View {
-        let per100 = log.nutrients.scaled(100 / max(log.grams, 1))
+        let food = log.asFood
         NavigationStack {
             Form {
                 Section(log.name) {
@@ -486,7 +438,7 @@ struct EditLogSheet: View {
                     }
                     GramsField(grams: $grams)
                 }
-                NutrientsSummary(n: per100.scaled(grams / 100))
+                NutrientsSummary(n: food.per100.scaled(grams / 100), m: food.micros?.scaled(grams / 100))
                 Section {
                     Button("Apagar", role: .destructive) { context.delete(log); dismiss() }
                 }
@@ -497,8 +449,7 @@ struct EditLogSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Salvar") {
-                        log.nutrients = per100.scaled(grams / 100)
-                        log.grams = grams
+                        log.rescale(to: grams)
                         log.mealRaw = meal.rawValue
                         dismiss()
                     }
@@ -546,33 +497,3 @@ struct GramsField: View {
     }
 }
 
-/// Seção de formulário com os nutrientes.
-struct NutrientsSummary: View {
-    let n: Nutrients
-
-    var body: some View {
-        Section("Nutrientes") {
-            HStack {
-                big("Calorias", n.kcal, "kcal", Theme.warm)
-                big("Proteína", n.protein, "g", Theme.accent)
-                big("Carbo", n.carbs, "g", Theme.accent2)
-                big("Gordura", n.fat, "g", Theme.danger)
-            }
-            LabeledContent("Fibras", value: "\(n.fiber.fmt(1)) g")
-            if n.sugar > 0 { LabeledContent("Açúcares", value: "\(n.sugar.fmt(1)) g") }
-            LabeledContent("Gordura saturada", value: "\(n.saturated.fmt(1)) g")
-            LabeledContent("Sódio", value: "\(n.sodium.fmt(0)) mg")
-            LabeledContent("Cálcio", value: "\(n.calcium.fmt(0)) mg")
-            LabeledContent("Ferro", value: "\(n.iron.fmt(1)) mg")
-            LabeledContent("Potássio", value: "\(n.potassium.fmt(0)) mg")
-        }
-    }
-
-    private func big(_ t: String, _ v: Double, _ u: String, _ c: Color) -> some View {
-        VStack(spacing: 2) {
-            Text(v.fmt(0)).font(.title3.bold()).foregroundStyle(c).contentTransition(.numericText())
-            Text("\(u) \(t.lowercased())").font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}

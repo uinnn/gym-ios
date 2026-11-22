@@ -3,7 +3,7 @@ import SwiftData
 import VisionKit
 
 enum FoodSource: String, CaseIterable, Identifiable {
-    case recent = "Recentes", favorites = "Favoritos", taco = "TACO", online = "Online", mine = "Meus"
+    case recent = "Recentes", favorites = "Favoritos", taco = "Base", online = "Online", mine = "Meus"
     var id: String { rawValue }
 }
 
@@ -197,7 +197,7 @@ struct FoodAmountSheet: View {
                     }
                     GramsField(grams: $grams, serving: food.servingGrams.map { (food.servingName ?? "porção", $0) })
                 }
-                NutrientsSummary(n: food.per100.scaled(grams / 100))
+                NutrientsSummary(n: food.per100.scaled(grams / 100), m: food.micros?.scaled(grams / 100))
                 Section {
                     Button {
                         toggleFavorite()

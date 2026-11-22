@@ -1,28 +1,34 @@
 import Foundation
 
-/// Tabela TACO (UNICAMP) embutida no app: 597 alimentos brasileiros, valores por 100 g.
+/// Banco de alimentos embutido (valores por 100 g):
+/// TACO/UNICAMP (598), IBGE/POF 2008–09 (1.970) e alguns itens complementares estimados.
 final class FoodDatabase {
     static let shared = FoodDatabase()
     let foods: [FoodItem]
     private let index: [(key: String, food: FoodItem)]
 
     private struct Raw: Decodable {
-        let id: Int, n: String, cat: String
-        let kcal, p, c, f, fib, na, ca, fe, k, mg, vc, chol, sat, zn: Double
+        let i: String, n: String, c: String, s: String
+        let v: [Double]   // ordem: ver build_foods.py
     }
 
     private init() {
-        guard let url = Bundle.main.url(forResource: "taco", withExtension: "json"),
+        guard let url = Bundle.main.url(forResource: "foods", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let raw = try? JSONDecoder().decode([Raw].self, from: data) else {
             foods = []; index = []; return
         }
-        foods = raw.map {
-            FoodItem(id: "taco-\($0.id)", name: $0.n, category: $0.cat,
-                     per100: Nutrients(kcal: $0.kcal, protein: $0.p, carbs: $0.c, fat: $0.f, fiber: $0.fib,
-                                       sugar: 0, saturated: $0.sat, sodium: $0.na, calcium: $0.ca, iron: $0.fe,
-                                       potassium: $0.k, magnesium: $0.mg, vitaminC: $0.vc,
-                                       cholesterol: $0.chol, zinc: $0.zn))
+        foods = raw.compactMap { r in
+            guard r.v.count >= 34 else { return nil }
+            let v = r.v
+            let n = Nutrients(kcal: v[0], protein: v[1], carbs: v[2], fat: v[3], fiber: v[4], sugar: v[5],
+                              saturated: v[6], sodium: v[7], calcium: v[8], iron: v[9], potassium: v[10],
+                              magnesium: v[11], vitaminC: v[12], cholesterol: v[13], zinc: v[14])
+            let m = Micros(mono: v[15], poly: v[16], trans: v[17], omega3: v[18], omega6: v[19], addedSugar: v[20],
+                           phosphorus: v[21], manganese: v[22], copper: v[23], selenium: v[24], vitaminA: v[25],
+                           b1: v[26], b2: v[27], b3: v[28], b6: v[29], b12: v[30], folate: v[31],
+                           vitaminD: v[32], vitaminE: v[33])
+            return FoodItem(id: r.i, name: r.n, category: r.c, per100: n, micros: m)
         }
         index = foods.map { (Self.normalize($0.name), $0) }
     }
@@ -119,8 +125,18 @@ enum OpenFoodFacts {
                                vitaminC: v("vitamin-c_100g") * 1000, cholesterol: v("cholesterol_100g") * 1000,
                                zinc: v("zinc_100g") * 1000)
         let code = p.code ?? fallbackCode ?? UUID().uuidString
+        let micros = Micros(mono: v("monounsaturated-fat_100g"), poly: v("polyunsaturated-fat_100g"),
+                            trans: v("trans-fat_100g"), omega3: v("omega-3-fat_100g"), omega6: v("omega-6-fat_100g"),
+                            addedSugar: v("added-sugars_100g"), phosphorus: v("phosphorus_100g") * 1000,
+                            manganese: v("manganese_100g") * 1000, copper: v("copper_100g") * 1000,
+                            selenium: v("selenium_100g") * 1_000_000, vitaminA: v("vitamin-a_100g") * 1_000_000,
+                            b1: v("vitamin-b1_100g") * 1000, b2: v("vitamin-b2_100g") * 1000,
+                            b3: v("vitamin-pp_100g") * 1000, b6: v("vitamin-b6_100g") * 1000,
+                            b12: v("vitamin-b12_100g") * 1_000_000, folate: v("vitamin-b9_100g") * 1_000_000,
+                            vitaminD: v("vitamin-d_100g") * 1_000_000, vitaminE: v("vitamin-e_100g") * 1000)
         return FoodItem(id: "off-\(code)", name: name, category: "Produto industrializado",
                         brand: p.brands?.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespaces) },
-                        per100: per100, servingGrams: p.serving_quantity?.value, servingName: p.serving_size)
+                        per100: per100, servingGrams: p.serving_quantity?.value, servingName: p.serving_size,
+                        micros: micros)
     }
 }

@@ -33,6 +33,38 @@ extension Sequence where Element == Nutrients {
     var total: Nutrients { reduce(.zero, +) }
 }
 
+/// Nutrientes complementares (gorduras detalhadas, vitaminas e minerais extras).
+/// Separado de `Nutrients` para não quebrar dados já salvos.
+struct Micros: Codable, Hashable {
+    var mono = 0.0, poly = 0.0, trans = 0.0, omega3 = 0.0, omega6 = 0.0, addedSugar = 0.0
+    var phosphorus = 0.0, manganese = 0.0, copper = 0.0, selenium = 0.0
+    var vitaminA = 0.0, b1 = 0.0, b2 = 0.0, b3 = 0.0, b6 = 0.0, b12 = 0.0, folate = 0.0
+    var vitaminD = 0.0, vitaminE = 0.0
+
+    static let keys: [WritableKeyPath<Micros, Double>] = [
+        \.mono, \.poly, \.trans, \.omega3, \.omega6, \.addedSugar, \.phosphorus, \.manganese, \.copper, \.selenium,
+        \.vitaminA, \.b1, \.b2, \.b3, \.b6, \.b12, \.folate, \.vitaminD, \.vitaminE,
+    ]
+
+    func scaled(_ f: Double) -> Micros {
+        var m = self
+        for k in Self.keys { m[keyPath: k] *= f }
+        return m
+    }
+
+    static func + (a: Micros, b: Micros) -> Micros {
+        var m = a
+        for k in keys { m[keyPath: k] += b[keyPath: k] }
+        return m
+    }
+
+    static let zero = Micros()
+}
+
+extension Sequence where Element == Micros {
+    var total: Micros { reduce(.zero, +) }
+}
+
 /// Um alimento do banco de dados (TACO, Open Food Facts ou criado pelo usuário).
 struct FoodItem: Codable, Hashable, Identifiable {
     var id: String                 // "taco-1", "off-7891000…", "custom-UUID"
@@ -42,9 +74,12 @@ struct FoodItem: Codable, Hashable, Identifiable {
     var per100: Nutrients
     var servingGrams: Double? = nil
     var servingName: String? = nil
+    var micros: Micros? = nil
 
     var sourceLabel: String {
         if id.hasPrefix("taco") { return "TACO" }
+        if id.hasPrefix("ibge") { return "IBGE" }
+        if id.hasPrefix("extra") { return "Estimativa" }
         if id.hasPrefix("off") { return "Open Food Facts" }
         return "Meu alimento"
     }
@@ -111,6 +146,7 @@ final class FoodLog {
     var name: String = ""
     var grams: Double = 100
     var nutrients: Nutrients = Nutrients()
+    var micros: Micros?
 
     init(date: Date, meal: Meal, food: FoodItem, grams: Double) {
         self.date = date
@@ -119,9 +155,23 @@ final class FoodLog {
         self.name = food.name
         self.grams = grams
         self.nutrients = food.per100.scaled(grams / 100)
+        self.micros = food.micros?.scaled(grams / 100)
     }
 
     var meal: Meal { Meal(rawValue: mealRaw) ?? .lunch }
+
+    /// O alimento equivalente por 100 g (para duplicar, copiar ou editar).
+    var asFood: FoodItem {
+        let f = 100 / max(grams, 0.1)
+        return FoodItem(id: foodID, name: name, category: "", per100: nutrients.scaled(f), micros: micros?.scaled(f))
+    }
+
+    func rescale(to newGrams: Double) {
+        let f = newGrams / max(grams, 0.1)
+        nutrients = nutrients.scaled(f)
+        micros = micros?.scaled(f)
+        grams = newGrams
+    }
 }
 
 /// Alimentos usados, favoritos, vindos da internet ou criados pelo usuário.

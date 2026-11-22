@@ -1,0 +1,36 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Gerar projeto Xcode
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Compilar (sem assinatura)
+        run: |
+          xcodebuild -project Gym.xcodeproj -scheme Gym -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Empacotar .ipa
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Gym.app Payload/
+          zip -qry Gym.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gym-ipa
+          path: Gym.ipa

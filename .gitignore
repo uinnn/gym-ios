@@ -1,0 +1,6 @@
+*.xcodeproj/
+build/
+Payload/
+*.ipa
+GymApp/Info.plist
+.claude/settings.local.json

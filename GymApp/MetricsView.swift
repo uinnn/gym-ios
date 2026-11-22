@@ -97,7 +97,7 @@ struct MetricsView: View {
                     } else if cat == .shape {
                         SectionHeader(title: cat.title, icon: cat.icon)
                         Card {
-                            Label("Cadastre cintura, quadril e pescoço na aba Medidas para liberar 7 índices de formato e risco e uma estimativa de gordura mais precisa.",
+                            Label("Cadastre suas medidas na aba Medidas (cintura, quadril, pescoço, braços, pernas, punho…) para ver cada uma aqui com faixas de risco, explicações e índices como cintura/altura, ossatura e simetria.",
                                   systemImage: "ruler")
                                 .font(.subheadline)
                         }

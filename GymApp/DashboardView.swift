@@ -148,9 +148,12 @@ struct DashboardView: View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(kg.fmt(2))
                 .font(.system(size: 46, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
                 .contentTransition(.numericText(value: kg))
                 .foregroundStyle(Theme.gradient)
-            Text("kg").font(.headline).foregroundStyle(.secondary)
+                .layoutPriority(1)
+            Text("kg").font(.headline).foregroundStyle(.secondary).fixedSize()
         }
     }
 

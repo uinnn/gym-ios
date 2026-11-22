@@ -71,6 +71,7 @@ enum MetricID: String, CaseIterable, Identifiable {
     case bodyScore, fmi, bmiPrime, ponderal, bsa, height, age
     // formato (precisa de medidas)
     case whtr, whr, bri, absi, conicity, rfm, bai
+    case mWaist, mAbdomen, mHip, mNeck, mChest, mShoulders, mArmL, mArmR, mForearmL, mForearmR, mThighL, mThighR, mCalfL, mCalfR, mWrist, frameSize, shoulderWaist, chestWaist, armSymmetry, thighSymmetry, calfSymmetry
     // peso ideal
     case standardWeight, idealWeight, healthyMin, healthyMax, weightControl, fatControl, muscleControl
     // nutrição
@@ -85,7 +86,8 @@ enum MetricID: String, CaseIterable, Identifiable {
         case .smmPercent, .smm, .musclePercent, .muscleMass, .bone, .ffmi, .nffmi, .muscularPotential: .muscle
         case .bmr, .metabolicAge, .tdee, .maxDeficit, .maxLossWeek: .metabolism
         case .bodyScore, .fmi, .bmiPrime, .ponderal, .bsa, .height, .age: .indices
-        case .whtr, .whr, .bri, .absi, .conicity, .rfm, .bai: .shape
+        case .whtr, .whr, .bri, .absi, .conicity, .rfm, .bai,
+             .mWaist, .mAbdomen, .mHip, .mNeck, .mChest, .mShoulders, .mArmL, .mArmR, .mForearmL, .mForearmR, .mThighL, .mThighR, .mCalfL, .mCalfR, .mWrist, .frameSize, .shoulderWaist, .chestWaist, .armSymmetry, .thighSymmetry, .calfSymmetry: .shape
         case .standardWeight, .idealWeight, .healthyMin, .healthyMax, .weightControl, .fatControl, .muscleControl: .ideal
         case .targetCalories, .proteinNeed, .fatNeed, .carbNeed, .fiberNeed, .waterIntake: .nutrition
         }
@@ -145,6 +147,7 @@ enum MetricID: String, CaseIterable, Identifiable {
         case .carbNeed: "Carboidrato diário"
         case .fiberNeed: "Fibras diárias"
         case .waterIntake: "Água para beber"
+        default: measureMeta.title
         }
     }
 
@@ -166,6 +169,7 @@ enum MetricID: String, CaseIterable, Identifiable {
         case .visceralFat: "nível"
         case .bodyScore: "pts"
         case .bmiPrime, .whtr, .whr, .bri, .absi, .conicity: ""
+        default: measureMeta.unit
         }
     }
 
@@ -173,7 +177,7 @@ enum MetricID: String, CaseIterable, Identifiable {
         switch self {
         case .bmr, .tdee, .maxDeficit, .targetCalories, .proteinNeed, .fatNeed, .carbNeed, .fiberNeed,
              .height, .age, .metabolicAge, .visceralFat, .bodyScore: 0
-        case .weight, .whtr, .whr, .bmiPrime, .bsa, .conicity: 2
+        case .weight, .whtr, .whr, .bmiPrime, .bsa, .conicity, .shoulderWaist, .chestWaist: 2
         case .absi: 4
         default: 1
         }
@@ -217,6 +221,7 @@ enum MetricID: String, CaseIterable, Identifiable {
         case .carbNeed: "leaf.fill"
         case .fiberNeed: "carrot.fill"
         case .waterIntake: "waterbottle.fill"
+        default: measureMeta.icon
         }
     }
 
@@ -227,6 +232,8 @@ enum MetricID: String, CaseIterable, Identifiable {
              .proteinPercent, .proteinMass, .lbm, .ffmi, .nffmi, .bodyScore, .muscularPotential: true
         case .bmi, .bodyFat, .fatMass, .subcutaneousFat, .visceralFat, .obesity, .metabolicAge, .fmi,
              .whtr, .whr, .bri, .absi, .conicity, .rfm, .bai, .bmiPrime: false
+        case .mWaist, .mAbdomen, .mNeck, .armSymmetry, .thighSymmetry, .calfSymmetry: false
+        case .mArmL, .mArmR, .mForearmL, .mForearmR, .mCalfL, .mCalfR, .mShoulders, .mChest, .shoulderWaist, .chestWaist: true
         default: nil
         }
     }
@@ -458,6 +465,7 @@ extension MetricID {
             what: "Água para beber por dia.",
             how: "35 ml por kg de peso.",
             tip: "Aumente em dias quentes ou de treino. Urina clara é um bom sinal.")
+        default: measureInfo
         }
     }
 }
@@ -474,6 +482,7 @@ struct BodyInputs {
     var neck: Double?
     var waist: Double?
     var hip: Double?
+    var parts: [BodyPart: Double] = [:]
 
     init(kg: Double, profile: UserProfile, measurement: MeasurementEntry? = nil) {
         self.kg = kg
@@ -485,6 +494,8 @@ struct BodyInputs {
         neck = measurement?.neck
         waist = measurement?.waist ?? profile.waistCm
         hip = measurement?.hip
+        if let m = measurement { for p in BodyPart.allCases { if let v = m[p] { parts[p] = v } } }
+        if parts[.waist] == nil, let w = profile.waistCm { parts[.waist] = w }
     }
 
     func with(kg: Double) -> BodyInputs { var c = self; c.kg = kg; return c }
@@ -757,6 +768,7 @@ struct BodyAnalysis {
         if let hp = input.hip {
             add(Metric(id: .bai, value: hp / pow(h, 1.5) - 18, bands: fatBands, scale: 0...50))
         }
+        out.append(contentsOf: measurementMetrics)
 
         // Peso ideal
         let inches = input.heightCm / 2.54 - 60

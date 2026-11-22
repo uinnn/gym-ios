@@ -106,23 +106,39 @@ struct NutrientDetailView: View {
     @Query private var measurements: [MeasurementEntry]
     @Query(sort: \FoodLog.date) private var logs: [FoodLog]
 
-    var body: some View {
-        let ctx = NutrientContext.make(profiles.first, weights, measurements)
-        let r = id.reference(ctx)
-        let cal = Calendar.current
-        let today = logs.filter { cal.isDateInToday($0.date) }
-        let value = id.value(today.map(\.nutrients).total, today.compactMap(\.micros).total)
-        let series: [(Date, Double)] = (0..<14).reversed().compactMap { i in
-            guard let d = cal.date(byAdding: .day, value: -i, to: cal.startOfDay(for: .now)) else { return nil }
-            let l = logs.filter { cal.isSameDay($0.date, d) }
-            return l.isEmpty ? nil : (d, id.value(l.map(\.nutrients).total, l.compactMap(\.micros).total))
-        }
-        let avg = series.isEmpty ? 0 : series.map(\.1).reduce(0, +) / Double(series.count)
-        let contributors = Dictionary(grouping: today, by: \.name)
-            .map { ($0.key, $0.value.map { id.value($0.nutrients, $0.micros ?? .zero) }.reduce(0, +)) }
-            .filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }.prefix(6)
-        let info = id.info
+    private var ctx: NutrientContext { NutrientContext.make(profiles.first, weights, measurements) }
+    private var ref: NutrientRef { id.reference(ctx) }
+    private var todayLogs: [FoodLog] { logs.filter { Calendar.current.isDateInToday($0.date) } }
 
+    private var todayValue: Double {
+        let t = todayLogs
+        return id.value(t.map(\.nutrients).total, t.compactMap(\.micros).total)
+    }
+
+    private var series: [(Date, Double)] {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: .now)
+        var out: [(Date, Double)] = []
+        for i in (0..<14).reversed() {
+            guard let d = cal.date(byAdding: .day, value: -i, to: start) else { continue }
+            let l = logs.filter { cal.isSameDay($0.date, d) }
+            if l.isEmpty { continue }
+            let n: Nutrients = l.map(\.nutrients).total
+            let m: Micros = l.compactMap(\.micros).total
+            out.append((d, id.value(n, m)))
+        }
+        return out
+    }
+
+    private var contributors: [(String, Double)] {
+        var dict: [String: Double] = [:]
+        for l in todayLogs { dict[l.name, default: 0] += id.value(l.nutrients, l.micros ?? .zero) }
+        return dict.filter { $0.value > 0 }.sorted { $0.value > $1.value }.prefix(6).map { ($0.key, $0.value) }
+    }
+
+    var body: some View {
+        let value = todayValue, r = ref, s = series
+        let avg: Double = s.isEmpty ? 0 : s.map(\.1).reduce(0, +) / Double(s.count)
         NavigationStack {
             ZStack {
                 AnimatedBackground()
@@ -130,52 +146,10 @@ struct NutrientDetailView: View {
                     VStack(spacing: 16) {
                         hero(value, r).appear()
                         refCard(value, r, avg: avg).appear(0.05)
-                        if series.count >= 2 { chartCard(series, r).appear(0.1) }
-                        Card {
-                            VStack(alignment: .leading, spacing: 14) {
-                                block("Para que serve", "heart.text.square.fill", info.function)
-                                Divider()
-                                block("Onde encontrar", "basket.fill", info.sources)
-                                Divider()
-                                block("Dicas", "lightbulb.fill", info.tips)
-                                Divider()
-                                block("Se faltar", "arrow.down.circle.fill", info.deficiency)
-                                Divider()
-                                block("Se exceder", "exclamationmark.triangle.fill", info.excess)
-                            }
-                        }
-                        .appear(0.15)
-                        if !contributors.isEmpty {
-                            Card {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Suas fontes hoje").font(.headline)
-                                    ForEach(Array(contributors.enumerated()), id: \.offset) { _, c in
-                                        HStack {
-                                            Text(c.0).font(.subheadline).lineLimit(1)
-                                            Spacer()
-                                            Text("\(fmtValue(c.1)) \(id.unit)").font(.caption.monospacedDigit())
-                                        }
-                                        ProgressBar(progress: c.1 / max(value, 0.0001), tint: Theme.accent, height: 4)
-                                    }
-                                }
-                            }
-                            .appear(0.2)
-                        }
-                        Card {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Mais ricos em \(id.title.lowercased()) (por 100 g)").font(.headline)
-                                ForEach(Array(FoodDatabase.shared.topSources(id).enumerated()), id: \.offset) { i, s in
-                                    HStack {
-                                        Text("\(i + 1).").font(.caption.bold()).foregroundStyle(Theme.accent).frame(width: 22)
-                                        Text(s.0.name).font(.subheadline).lineLimit(1)
-                                        Spacer()
-                                        Text("\(fmtValue(s.1)) \(id.unit)").font(.caption.monospacedDigit())
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                        }
-                        .appear(0.25)
+                        if s.count >= 2 { chartCard(s, r).appear(0.1) }
+                        infoCard.appear(0.15)
+                        contributorsCard(value).appear(0.2)
+                        topCard.appear(0.25)
                         Text("Referências para adultos: IOM/NIH (RDA/AI e limite superior tolerável), OMS e Dietary Guidelines. Gestantes, crianças e pessoas com doenças têm necessidades diferentes.")
                             .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
@@ -185,6 +159,59 @@ struct NutrientDetailView: View {
             .navigationTitle(id.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("OK") { dismiss() } }
+        }
+    }
+
+    private var infoCard: some View {
+        let info = id.info
+        return Card {
+            VStack(alignment: .leading, spacing: 14) {
+                block("Para que serve", "heart.text.square.fill", info.function)
+                Divider()
+                block("Onde encontrar", "basket.fill", info.sources)
+                Divider()
+                block("Dicas", "lightbulb.fill", info.tips)
+                Divider()
+                block("Se faltar", "arrow.down.circle.fill", info.deficiency)
+                Divider()
+                block("Se exceder", "exclamationmark.triangle.fill", info.excess)
+            }
+        }
+    }
+
+    @ViewBuilder private func contributorsCard(_ value: Double) -> some View {
+        let list = contributors
+        if !list.isEmpty {
+            Card {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Suas fontes hoje").font(.headline)
+                    ForEach(Array(list.enumerated()), id: \.offset) { _, c in
+                        HStack {
+                            Text(c.0).font(.subheadline).lineLimit(1)
+                            Spacer()
+                            Text("\(fmtValue(c.1)) \(id.unit)").font(.caption.monospacedDigit())
+                        }
+                        ProgressBar(progress: c.1 / max(value, 0.0001), tint: Theme.accent, height: 4)
+                    }
+                }
+            }
+        }
+    }
+
+    private var topCard: some View {
+        let top = FoodDatabase.shared.topSources(id)
+        return Card {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Mais ricos em \(id.title.lowercased()) (por 100 g)").font(.headline)
+                ForEach(Array(top.enumerated()), id: \.offset) { i, s in
+                    HStack {
+                        Text("\(i + 1).").font(.caption.bold()).foregroundStyle(Theme.accent).frame(width: 22)
+                        Text(s.0.name).font(.subheadline).lineLimit(1)
+                        Spacer()
+                        Text("\(fmtValue(s.1)) \(id.unit)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
     }
 

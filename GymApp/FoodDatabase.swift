@@ -42,13 +42,13 @@ final class FoodDatabase {
     func search(_ query: String, limit: Int = 60) -> [FoodItem] {
         let words = Self.normalize(query).split(separator: " ").map(String.init).filter { !$0.isEmpty }
         guard !words.isEmpty else { return [] }
-        let hits = index.filter { item in words.allSatisfy { item.key.contains($0) } }
-        return hits.sorted { a, b in
-            let ap = a.key.hasPrefix(words[0]), bp = b.key.hasPrefix(words[0])
-            if ap != bp { return ap }
-            return a.key.count < b.key.count
+        // calcula o critério de ordenação uma vez por item (não a cada comparação)
+        var hits: [(prefix: Bool, length: Int, food: FoodItem)] = []
+        for item in index where words.allSatisfy({ item.key.contains($0) }) {
+            hits.append((item.key.hasPrefix(words[0]), item.key.utf8.count, item.food))
         }
-        .prefix(limit).map(\.food)
+        hits.sort { $0.prefix != $1.prefix ? $0.prefix : $0.length < $1.length }
+        return hits.prefix(limit).map(\.food)
     }
 
     func food(id: String) -> FoodItem? { foods.first { $0.id == id } }

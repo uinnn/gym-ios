@@ -336,7 +336,7 @@ extension MetricID {
             tip: "Corresponde a ~60–70% do gasto diário. Massa muscular maior aumenta o basal.")
         case .metabolicAge: MetricInfo(
             what: "A idade de uma pessoa \"média\" com o mesmo metabolismo basal que o seu.",
-            how: "Compara seu basal pela massa magra (Katch-McArdle) com o basal médio esperado (Mifflin-St Jeor) e encontra a idade equivalente.",
+            how: "Parte da sua idade real e ajusta pela composição: gordura acima do esperado para sua idade e sexo envelhece (~1,2 ano por ponto %), massa magra acima da média (FFMI) rejuvenesce. É o mesmo princípio das balanças de bioimpedância.",
             tip: "Abaixo da idade real é ótimo. Aumentar massa muscular e reduzir gordura \"rejuvenesce\" esse número.")
         case .tdee: MetricInfo(
             what: "Total de calorias que você gasta por dia, incluindo atividades.",
@@ -586,7 +586,14 @@ struct BodyAnalysis {
         harris = male ? 88.362 + 13.397 * W + 4.799 * H - 5.677 * A
                       : 447.593 + 9.247 * W + 3.098 * H - 4.330 * A
         cunningham = 500 + 22 * lbm
-        metabolicAge = min(max(((10 * W + 6.25 * H + (male ? 5 : -161)) - katch) / 5, 12), 90).rounded()
+        // Idade metabólica: cada 1 ponto de gordura acima/abaixo do esperado para a idade
+        // equivale a ~1,2 ano; massa magra acima da média (FFMI) também "rejuvenesce".
+        // (Comparar Katch-McArdle com Mifflin dava viés de +10 a +15 anos em pessoas magras.)
+        let refFat = (fatRange.low + fatRange.healthy) / 2
+        let refFFMI = male ? 19.0 : 15.5
+        let ffmiNow = lbm / (h * h)
+        let rawAge = A + (bodyFat - refFat) * 1.2 - (ffmiNow - refFFMI) * 1.0
+        metabolicAge = min(max(rawAge, max(12, A - 20)), A + 30).rounded()
         tdee = mifflin * i.activity
         target = max(mifflin, tdee + i.goal.calorieDelta)
         standard = 22 * h * h

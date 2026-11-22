@@ -9,6 +9,7 @@ struct MeasurementsView: View {
     @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
     @State private var showAdd = false
     @State private var selectedPart: BodyPart?
+    @State private var showShare = false
 
     private var latest: MeasurementEntry? { all.merged() }
 
@@ -35,7 +36,15 @@ struct MeasurementsView: View {
             }
             .navigationTitle("Medidas")
             .toolbar {
+                Button { showShare = true } label: { Image(systemName: "square.and.arrow.up") }.disabled(all.isEmpty)
                 Button { showAdd = true } label: { Image(systemName: "plus.circle.fill").font(.title3) }
+            }
+            .sheet(isPresented: $showShare) {
+                if let m = latest {
+                    ShareImageSheet(title: "Medidas") {
+                        MeasurementsShareCard(latest: m, first: all.first, heightCm: profiles.first?.heightCm ?? 170)
+                    }
+                }
             }
             .sheet(isPresented: $showAdd) { AddMeasurementSheet() }
             .sheet(item: $selectedPart) { PartDetailView(part: $0) }

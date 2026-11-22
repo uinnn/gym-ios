@@ -42,6 +42,7 @@ struct MetricsView: View {
     @Query private var measurements: [MeasurementEntry]
     @State private var category: MetricCategory?
     @State private var selected: MetricID?
+    @State private var showShare = false
     @Namespace private var ns
 
     var body: some View {
@@ -56,6 +57,19 @@ struct MetricsView: View {
                 }
             }
             .navigationTitle("Métricas")
+            .toolbar {
+                Button { showShare = true } label: { Image(systemName: "square.and.arrow.up") }
+                    .disabled(entries.isEmpty)
+            }
+            .sheet(isPresented: $showShare) {
+                if let ctx = AnalysisContext(profile: profiles.first, entries: entries, measurements: measurements) {
+                    ShareImageSheet(title: "Métricas") {
+                        MetricsShareCard(analysis: ctx.current, date: ctx.entries.last!.date,
+                                         delta: ctx.entries.count >= 2 ? ctx.entries[ctx.entries.count - 1].kg - ctx.entries[ctx.entries.count - 2].kg : nil,
+                                         name: profiles.first?.name ?? "")
+                    }
+                }
+            }
         }
     }
 

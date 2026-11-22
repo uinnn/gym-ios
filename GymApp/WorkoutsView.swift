@@ -387,6 +387,7 @@ struct SessionDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @State private var confirmDelete = false
+    @State private var showShare = false
 
     var body: some View {
         NavigationStack {
@@ -417,6 +418,7 @@ struct SessionDetailView: View {
                     }
                 }
                 Section {
+                    Button("Compartilhar imagem", systemImage: "square.and.arrow.up") { showShare = true }
                     Button("Repetir este treino", systemImage: "arrow.clockwise") { dismiss(); onRepeat(session) }
                     Button("Apagar treino", systemImage: "trash", role: .destructive) { confirmDelete = true }
                 }
@@ -426,6 +428,9 @@ struct SessionDetailView: View {
             .toolbar { Button("OK") { dismiss() } }
             .confirmationDialog("Apagar este treino?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Apagar", role: .destructive) { context.delete(session); dismiss() }
+            }
+            .sheet(isPresented: $showShare) {
+                ShareImageSheet(title: "Treino") { WorkoutShareCard(session: session) }
             }
         }
     }

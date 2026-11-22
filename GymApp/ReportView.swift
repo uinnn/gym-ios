@@ -18,6 +18,7 @@ struct ReportView: View {
     @Query(sort: \WeightEntry.date) private var entries: [WeightEntry]
     @Query private var measurements: [MeasurementEntry]
     @State private var confirmDelete = false
+    @State private var showShare = false
 
     var body: some View {
         NavigationStack {
@@ -33,11 +34,20 @@ struct ReportView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("OK") { dismiss() } }
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
+                        Button("Compartilhar imagem", systemImage: "photo") { showShare = true }
                         if let ctx = AnalysisContext(profile: profiles.first, entries: entries, measurements: measurements) {
-                            ShareLink(item: shareText(ctx)) { Label("Compartilhar resumo", systemImage: "square.and.arrow.up") }
+                            ShareLink(item: shareText(ctx)) { Label("Compartilhar texto", systemImage: "text.alignleft") }
                         }
                         Button("Apagar pesagem", systemImage: "trash", role: .destructive) { confirmDelete = true }
                     } label: { Image(systemName: "ellipsis.circle") }
+                }
+            }
+            .sheet(isPresented: $showShare) {
+                if let ctx = AnalysisContext(profile: profiles.first, entries: entries, measurements: measurements) {
+                    ShareImageSheet(title: "Relatório") {
+                        MetricsShareCard(analysis: ctx.analysis(entry), date: entry.date,
+                                         delta: previous.map { entry.kg - $0.kg }, name: profiles.first?.name ?? "")
+                    }
                 }
             }
             .confirmationDialog("Apagar esta pesagem?", isPresented: $confirmDelete, titleVisibility: .visible) {

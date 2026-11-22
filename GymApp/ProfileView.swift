@@ -82,6 +82,11 @@ struct ProfileView: View {
                     else { Text("Pesar-se no mesmo horário deixa a tendência mais confiável.") }
                 }
                 Section("Dados") {
+                    NavigationLink {
+                        DataManagementView()
+                    } label: {
+                        Label("Importar e exportar dados", systemImage: "arrow.up.arrow.down.circle.fill")
+                    }
                     LabeledContent("Pesagens", value: "\(entries.count)")
                     LabeledContent("Medições corporais", value: "\(measurements.count)")
                     Button { showScanner = true } label: {

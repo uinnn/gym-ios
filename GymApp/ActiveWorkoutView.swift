@@ -376,6 +376,7 @@ struct WorkoutSummaryView: View {
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \WorkoutSession.start, order: .reverse) private var history: [WorkoutSession]
     @State private var appeared = false
+    @State private var showShare = false
 
     var body: some View {
         let past = history.filter { $0.persistentModelID != session.persistentModelID && $0.start < session.start }
@@ -458,7 +459,15 @@ struct WorkoutSummaryView: View {
                     .padding()
                 }
             }
-            .toolbar { Button("Concluir") { dismiss() }.bold() }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showShare = true } label: { Label("Compartilhar", systemImage: "square.and.arrow.up") }
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Concluir") { dismiss() }.bold() }
+            }
+            .sheet(isPresented: $showShare) {
+                ShareImageSheet(title: "Treino") { WorkoutShareCard(session: session, prs: prs.count) }
+            }
             .onAppear { withAnimation(.spring(duration: 0.8, bounce: 0.5)) { appeared = true } }
             .sensoryFeedback(.success, trigger: appeared) { _, _ in ThemeStore.shared.haptics }
         }

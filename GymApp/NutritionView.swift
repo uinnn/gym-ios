@@ -42,6 +42,7 @@ struct NutritionView: View {
     @State private var showPlan = false
     @State private var showStats = false
     @State private var nutrientDetail: NutrientID?
+    @State private var showShare = false
 
     private var cal: Calendar { Calendar.current }
     private var dayLogs: [FoodLog] { logs.filter { cal.isSameDay($0.date, day) } }
@@ -88,6 +89,7 @@ struct NutritionView: View {
                     Menu {
                         Button("Plano alimentar do dia", systemImage: "list.bullet.clipboard") { showPlan = true }
                         Button("Copiar refeições de ontem", systemImage: "doc.on.doc") { copyYesterday() }
+                        Button("Compartilhar o dia", systemImage: "square.and.arrow.up") { showShare = true }
                         Button("Adicionar em \(Meal.forNow().label)", systemImage: "plus") { addingMeal = .forNow() }
                     } label: { Image(systemName: "ellipsis.circle") }
                 }
@@ -97,6 +99,13 @@ struct NutritionView: View {
             .sheet(isPresented: $showPlan) { MealPlanView(day: day, targets: targets) }
             .sheet(isPresented: $showStats) { NutritionStatsView() }
             .sheet(item: $nutrientDetail) { NutrientDetailView(id: $0) }
+            .sheet(isPresented: $showShare) {
+                let t = targets
+                ShareImageSheet(title: "Alimentação") {
+                    NutritionShareCard(day: day, totals: totals, target: t.kcal, protein: t.protein, carbs: t.carbs,
+                                       fat: t.fat, waterL: dayWater / 1000, meals: Set(dayLogs.map(\.mealRaw)).count)
+                }
+            }
         }
     }
 

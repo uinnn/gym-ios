@@ -83,70 +83,180 @@ final class UserProfile {
     }
 }
 
+enum WeighTag: String, CaseIterable, Identifiable {
+    case fasting, afterWorkout, afterMeal, morning, night, sick, travel
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .fasting: "Em jejum"
+        case .afterWorkout: "Pós-treino"
+        case .afterMeal: "Após refeição"
+        case .morning: "Ao acordar"
+        case .night: "À noite"
+        case .sick: "Doente"
+        case .travel: "Viagem"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .fasting: "moon.zzz.fill"
+        case .afterWorkout: "figure.run"
+        case .afterMeal: "fork.knife"
+        case .morning: "sunrise.fill"
+        case .night: "moon.fill"
+        case .sick: "cross.case.fill"
+        case .travel: "airplane"
+        }
+    }
+}
+
 @Model
 final class WeightEntry {
     var date: Date = Date.now
     var kg: Double = 0
     var source: String = "scale"   // "scale" ou "manual"
+    var note: String = ""
+    var tagsRaw: String = ""        // tags separadas por vírgula
 
     init(date: Date = .now, kg: Double, source: String = "scale") {
         self.date = date
         self.kg = kg
         self.source = source
     }
+
+    var tags: Set<WeighTag> {
+        get { Set(tagsRaw.split(separator: ",").compactMap { WeighTag(rawValue: String($0)) }) }
+        set { tagsRaw = newValue.map(\.rawValue).sorted().joined(separator: ",") }
+    }
 }
 
-/// Métricas calculadas a partir de peso + perfil.
-///
-/// A balança envia só o peso (a impedância não chega pelo Bluetooth), então a composição
-/// corporal é **estimada** por fórmulas validadas em população, não medida.
-struct BodyMetrics {
-    let kg: Double
-    let profile: UserProfile
+/// Partes do corpo que podem ser medidas (cm).
+enum BodyPart: String, CaseIterable, Identifiable {
+    case neck, shoulders, chest, armL, armR, forearmL, forearmR, wrist,
+         waist, abdomen, hip, thighL, thighR, calfL, calfR
+    var id: String { rawValue }
 
-    private var h: Double { profile.heightCm / 100 }
-    private var isMale: Bool { profile.sex == .male }
-
-    /// Índice de massa corporal.
-    var bmi: Double { kg / (h * h) }
-
-    var bmiCategory: (label: String, level: Int) {
-        switch bmi {
-        case ..<18.5: ("Abaixo do peso", 0)
-        case ..<25: ("Saudável", 1)
-        case ..<30: ("Sobrepeso", 2)
-        default: ("Obesidade", 3)
+    var label: String {
+        switch self {
+        case .neck: "Pescoço"
+        case .shoulders: "Ombros"
+        case .chest: "Peitoral"
+        case .armL: "Braço esquerdo"
+        case .armR: "Braço direito"
+        case .forearmL: "Antebraço esquerdo"
+        case .forearmR: "Antebraço direito"
+        case .wrist: "Punho"
+        case .waist: "Cintura"
+        case .abdomen: "Abdômen"
+        case .hip: "Quadril"
+        case .thighL: "Coxa esquerda"
+        case .thighR: "Coxa direita"
+        case .calfL: "Panturrilha esquerda"
+        case .calfR: "Panturrilha direita"
         }
     }
 
-    /// Gordura corporal estimada (Deurenberg, 1991).
-    var bodyFatPercent: Double {
-        let v = 1.2 * bmi + 0.23 * Double(profile.age) - 10.8 * (isMale ? 1 : 0) - 5.4
-        return min(max(v, 3), 60)
+    var howTo: String {
+        switch self {
+        case .neck: "Logo abaixo do pomo de Adão, fita levemente inclinada para baixo na frente."
+        case .shoulders: "Circunferência na parte mais larga dos ombros, braços relaxados."
+        case .chest: "Na linha dos mamilos, após expirar normalmente."
+        case .armL, .armR: "No ponto mais largo do bíceps, braço relaxado (ou contraído — sempre igual)."
+        case .forearmL, .forearmR: "No ponto mais largo, logo abaixo do cotovelo."
+        case .wrist: "Logo acima do osso do punho."
+        case .waist: "Na menor circunferência entre as costelas e o umbigo, após expirar."
+        case .abdomen: "Na altura do umbigo, relaxado."
+        case .hip: "No ponto mais largo dos glúteos, pés juntos."
+        case .thighL, .thighR: "Logo abaixo do glúteo, no ponto mais largo da coxa."
+        case .calfL, .calfR: "No ponto mais largo da panturrilha, em pé."
+        }
     }
-    var fatMassKg: Double { kg * bodyFatPercent / 100 }
-    var leanMassKg: Double { kg - fatMassKg }
-    /// Água corporal ≈ 73% da massa magra.
-    var waterPercent: Double { leanMassKg * 0.73 / kg * 100 }
-    /// Massa muscular esquelética ≈ 52% (H) / 46% (M) da massa magra.
-    var muscleMassKg: Double { leanMassKg * (isMale ? 0.52 : 0.46) }
 
-    /// Metabolismo basal (Mifflin-St Jeor).
-    var bmr: Double {
-        10 * kg + 6.25 * profile.heightCm - 5 * Double(profile.age) + (isMale ? 5 : -161)
+    /// Se diminuir costuma ser o objetivo (true), aumentar (false) ou neutro (nil).
+    var smallerIsBetter: Bool? {
+        switch self {
+        case .waist, .abdomen: true
+        case .neck, .hip, .wrist: nil
+        default: false
+        }
     }
-    /// Gasto energético total diário.
-    var tdee: Double { bmr * profile.activity.factor }
-    var targetCalories: Double { max(1200, tdee + profile.goal.calorieDelta) }
 
-    /// Proteína: 1,6 g/kg (faixa recomendada para quem treina).
-    var proteinGrams: Double { kg * 1.6 }
-    /// Água para beber: 35 ml/kg.
-    var waterLiters: Double { kg * 0.035 }
+    var keyPath: ReferenceWritableKeyPath<MeasurementEntry, Double?> {
+        switch self {
+        case .neck: \.neck
+        case .shoulders: \.shoulders
+        case .chest: \.chest
+        case .armL: \.armL
+        case .armR: \.armR
+        case .forearmL: \.forearmL
+        case .forearmR: \.forearmR
+        case .wrist: \.wrist
+        case .waist: \.waist
+        case .abdomen: \.abdomen
+        case .hip: \.hip
+        case .thighL: \.thighL
+        case .thighR: \.thighR
+        case .calfL: \.calfL
+        case .calfR: \.calfR
+        }
+    }
 
-    /// Faixa de peso saudável para a altura (IMC 18,5–24,9).
-    var healthyRange: ClosedRange<Double> { (18.5 * h * h)...(24.9 * h * h) }
+    /// Pares esquerdo/direito para simetria.
+    static let pairs: [(String, BodyPart, BodyPart)] = [
+        ("Braços", .armL, .armR), ("Antebraços", .forearmL, .forearmR),
+        ("Coxas", .thighL, .thighR), ("Panturrilhas", .calfL, .calfR),
+    ]
+}
 
-    /// Relação cintura/altura (se a cintura foi informada). < 0,5 = baixo risco.
-    var waistToHeight: Double? { profile.waistCm.map { $0 / profile.heightCm } }
+@Model
+final class MeasurementEntry {
+    var date: Date = Date.now
+    var neck: Double?
+    var shoulders: Double?
+    var chest: Double?
+    var armL: Double?
+    var armR: Double?
+    var forearmL: Double?
+    var forearmR: Double?
+    var wrist: Double?
+    var waist: Double?
+    var abdomen: Double?
+    var hip: Double?
+    var thighL: Double?
+    var thighR: Double?
+    var calfL: Double?
+    var calfR: Double?
+    var note: String = ""
+
+    init(date: Date = .now) { self.date = date }
+
+    subscript(_ part: BodyPart) -> Double? {
+        get { self[keyPath: part.keyPath] }
+        set { self[keyPath: part.keyPath] = newValue }
+    }
+
+    var filledCount: Int { BodyPart.allCases.filter { self[$0] != nil }.count }
+}
+
+extension Array where Element == MeasurementEntry {
+    /// Medida mais recente até a data (a lista pode estar em qualquer ordem).
+    func latest(before date: Date = .distantFuture) -> MeasurementEntry? {
+        filter { $0.date <= date }.max { $0.date < $1.date }
+    }
+
+    /// Valor mais recente de uma parte, olhando todas as medições.
+    func latestValue(_ part: BodyPart, before date: Date = .distantFuture) -> Double? {
+        filter { $0.date <= date && $0[part] != nil }.max { $0.date < $1.date }?[part]
+    }
+
+    /// Junta as últimas medidas de cada parte numa entrada virtual (para os cálculos).
+    func merged(before date: Date = .distantFuture) -> MeasurementEntry? {
+        guard !isEmpty else { return nil }
+        let m = MeasurementEntry(date: date)
+        var any = false
+        for p in BodyPart.allCases {
+            if let v = latestValue(p, before: date) { m[p] = v; any = true }
+        }
+        return any ? m : nil
+    }
 }

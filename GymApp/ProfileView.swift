@@ -1,10 +1,9 @@
 import SwiftUI
 import SwiftData
 
-/// Campos do perfil, reutilizados no cadastro inicial e na aba Perfil.
+/// Campos do perfil.
 struct ProfileForm: View {
     @Bindable var profile: UserProfile
-    @State private var hasWaist = false
 
     var body: some View {
         Section("Sobre você") {
@@ -14,20 +13,10 @@ struct ProfileForm: View {
                 ForEach(Sex.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
-            DatePicker("Nascimento", selection: $profile.birthDate,
-                       in: ...Date.now, displayedComponents: .date)
+            DatePicker("Nascimento", selection: $profile.birthDate, in: ...Date.now, displayedComponents: .date)
             LabeledContent("Idade", value: "\(profile.age) anos")
-        }
-        Section("Corpo") {
             Stepper(value: $profile.heightCm, in: 100...230, step: 1) {
                 LabeledContent("Altura", value: "\(Int(profile.heightCm)) cm")
-            }
-            Toggle("Informar cintura", isOn: $hasWaist)
-                .onChange(of: hasWaist) { _, on in profile.waistCm = on ? (profile.waistCm ?? 80) : nil }
-            if let w = profile.waistCm {
-                Stepper(value: Binding(get: { w }, set: { profile.waistCm = $0 }), in: 40...200, step: 1) {
-                    LabeledContent("Cintura", value: "\(Int(w)) cm")
-                }
             }
         }
         Section("Objetivo") {
@@ -38,12 +27,10 @@ struct ProfileForm: View {
             Stepper(value: $profile.goalWeightKg, in: 30...250, step: 0.5) {
                 LabeledContent("Peso meta", value: "\(profile.goalWeightKg.fmt()) kg")
             }
-            Picker("Atividade física", selection: Binding(get: { profile.activity },
-                                                           set: { profile.activity = $0 })) {
+            Picker("Atividade física", selection: Binding(get: { profile.activity }, set: { profile.activity = $0 })) {
                 ForEach(ActivityLevel.allCases) { Text($0.label).tag($0) }
             }
         }
-        .onAppear { hasWaist = profile.waistCm != nil }
     }
 }
 
@@ -51,6 +38,9 @@ struct ProfileView: View {
     @Environment(\.modelContext) private var context
     @Query private var profiles: [UserProfile]
     @Query(sort: \WeightEntry.date, order: .reverse) private var entries: [WeightEntry]
+    @Query private var measurements: [MeasurementEntry]
+    @Bindable private var store = ThemeStore.shared
+    @Bindable private var reminders = ReminderStore.shared
     @State private var showScanner = false
     @State private var confirmReset = false
 
@@ -60,24 +50,51 @@ struct ProfileView: View {
                 if let p = profiles.first {
                     header(p)
                     ProfileForm(profile: p)
-                    if let kg = entries.first?.kg { insights(BodyMetrics(kg: kg, profile: p)) }
                 }
-                Section("Balança") {
+                Section("Personalização") {
+                    NavigationLink {
+                        ThemeSettingsView()
+                    } label: {
+                        HStack {
+                            Label("Tema e aparência", systemImage: "paintpalette.fill")
+                            Spacer()
+                            Circle().fill(Theme.gradient).frame(width: 22, height: 22)
+                        }
+                    }
+                    Toggle(isOn: $store.autoOpenReport) {
+                        Label("Abrir relatório após pesar", systemImage: "doc.text.magnifyingglass")
+                    }
+                    Toggle(isOn: $store.haptics) { Label("Vibração", systemImage: "iphone.radiowaves.left.and.right") }
+                }
+                Section {
+                    Toggle(isOn: $reminders.enabled.animation()) { Label("Lembrete diário", systemImage: "bell.badge.fill") }
+                    if reminders.enabled {
+                        DatePicker("Horário", selection: $reminders.time, displayedComponents: .hourAndMinute)
+                    }
+                } header: { Text("Lembretes") } footer: {
+                    if reminders.denied { Text("Notificações bloqueadas. Ative em Ajustes > Notificações > Gym.") }
+                    else { Text("Pesar-se no mesmo horário deixa a tendência mais confiável.") }
+                }
+                Section("Dados") {
+                    LabeledContent("Pesagens", value: "\(entries.count)")
+                    LabeledContent("Medições corporais", value: "\(measurements.count)")
                     Button { showScanner = true } label: {
                         Label("Diagnóstico Bluetooth", systemImage: "antenna.radiowaves.left.and.right")
                     }
-                }
-                Section {
                     Button("Apagar todas as pesagens", role: .destructive) { confirmReset = true }
                 }
+                Section {
+                    Text("As métricas de composição são estimativas por fórmulas científicas e não substituem avaliação médica ou de um nutricionista.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
+            .scrollContentBackground(.hidden)
+            .background(AnimatedBackground())
             .navigationTitle("Perfil")
             .sheet(isPresented: $showScanner) { ContentView() }
             .confirmationDialog("Apagar \(entries.count) pesagens? Não dá para desfazer.",
                                 isPresented: $confirmReset, titleVisibility: .visible) {
-                Button("Apagar tudo", role: .destructive) {
-                    entries.forEach { context.delete($0) }
-                }
+                Button("Apagar tudo", role: .destructive) { entries.forEach { context.delete($0) } }
             }
         }
     }
@@ -86,31 +103,20 @@ struct ProfileView: View {
         Section {
             HStack(spacing: 16) {
                 Text(String(p.name.first ?? "🙂"))
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(.white)
+                    .font(.largeTitle.bold()).foregroundStyle(.white)
                     .frame(width: 72, height: 72)
                     .background(Theme.gradient, in: Circle())
                 VStack(alignment: .leading) {
                     Text(p.name.isEmpty ? "Seu perfil" : p.name).font(.title2.bold())
                     Text("\(p.age) anos · \(Int(p.heightCm)) cm · \(p.sex.label)")
                         .font(.subheadline).foregroundStyle(.secondary)
+                    if let first = entries.last {
+                        Text("Usando desde \(first.date.formatted(.dateTime.month(.wide).year()))")
+                            .font(.caption).foregroundStyle(Theme.accent)
+                    }
                 }
             }
             .padding(.vertical, 6)
-        }
-    }
-
-    private func insights(_ m: BodyMetrics) -> some View {
-        Section("Indicadores") {
-            LabeledContent("Peso saudável", value: "\(m.healthyRange.lowerBound.fmt()) – \(m.healthyRange.upperBound.fmt()) kg")
-            LabeledContent("Gasto diário (TDEE)", value: "\(m.tdee.fmt(0)) kcal")
-            LabeledContent("Calorias para o objetivo", value: "\(m.targetCalories.fmt(0)) kcal")
-            if let r = m.waistToHeight {
-                LabeledContent("Cintura/altura") {
-                    Text("\(r.fmt(2)) · \(r < 0.5 ? "baixo risco" : (r < 0.6 ? "risco moderado" : "risco alto"))")
-                        .foregroundStyle(r < 0.5 ? Theme.accent : (r < 0.6 ? Theme.warm : Theme.danger))
-                }
-            }
         }
     }
 }
@@ -147,8 +153,7 @@ struct OnboardingView: View {
                                 ForEach(Sex.allCases) { Text($0.label).tag($0) }
                             }
                             .pickerStyle(.segmented)
-                            DatePicker("Nascimento", selection: $profile.birthDate,
-                                       in: ...Date.now, displayedComponents: .date)
+                            DatePicker("Nascimento", selection: $profile.birthDate, in: ...Date.now, displayedComponents: .date)
                         }
                     case 2:
                         VStack {
@@ -169,8 +174,7 @@ struct OnboardingView: View {
                                 .contentTransition(.numericText(value: profile.goalWeightKg))
                             Slider(value: $profile.goalWeightKg.animation(.snappy), in: 35...200, step: 0.5)
                                 .tint(Theme.accent)
-                            Picker("Atividade", selection: Binding(get: { profile.activity },
-                                                                    set: { profile.activity = $0 })) {
+                            Picker("Atividade", selection: Binding(get: { profile.activity }, set: { profile.activity = $0 })) {
                                 ForEach(ActivityLevel.allCases) { Text($0.label).tag($0) }
                             }
                         }

@@ -15,8 +15,12 @@ struct AnalysisContext {
         self.measurements = measurements
     }
 
+    /// Análise de uma pesagem. Usa as medidas feitas até aquela data; a pesagem mais recente
+    /// usa sempre as medidas mais recentes (mesmo que tenham sido feitas depois de pesar).
     func analysis(_ e: WeightEntry) -> BodyAnalysis {
-        BodyAnalysis(BodyInputs(kg: e.kg, profile: profile, measurement: measurements.merged(before: e.date)))
+        let isLatest = e.persistentModelID == entries.last?.persistentModelID
+        let m = isLatest ? measurements.merged() : (measurements.merged(before: e.date) ?? nil)
+        return BodyAnalysis(BodyInputs(kg: e.kg, profile: profile, measurement: m))
     }
 
     var current: BodyAnalysis { analysis(entries.last!) }
@@ -238,6 +242,11 @@ struct MetricDetailView: View {
             ZStack {
                 AnimatedBackground()
                 ScrollView {
+                    if a[id] == nil {
+                        ContentUnavailableView("Sem dados para esta métrica", systemImage: "ruler",
+                                               description: Text("Cadastre as medidas necessárias na aba Medidas e faça uma pesagem."))
+                            .padding(.top, 60)
+                    }
                     if let m = a[id] {
                         VStack(spacing: 16) {
                             hero(m).appear()

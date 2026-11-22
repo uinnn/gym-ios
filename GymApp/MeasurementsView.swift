@@ -7,9 +7,18 @@ struct MeasurementsView: View {
     @Query(sort: \MeasurementEntry.date) private var all: [MeasurementEntry]
     @Query private var profiles: [UserProfile]
     @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
-    @State private var showAdd = false
-    @State private var selectedPart: BodyPart?
-    @State private var showShare = false
+    @State private var sheet: MeasureSheet?
+
+    enum MeasureSheet: Identifiable {
+        case add, share, part(BodyPart)
+        var id: String {
+            switch self {
+            case .add: "add"
+            case .share: "share"
+            case .part(let p): "part-\(p.rawValue)"
+            }
+        }
+    }
 
     private var latest: MeasurementEntry? { all.merged() }
 
@@ -36,18 +45,21 @@ struct MeasurementsView: View {
             }
             .navigationTitle("Medidas")
             .toolbar {
-                Button { showShare = true } label: { Image(systemName: "square.and.arrow.up") }.disabled(all.isEmpty)
-                Button { showAdd = true } label: { Image(systemName: "plus.circle.fill").font(.title3) }
+                Button { sheet = .share } label: { Image(systemName: "square.and.arrow.up") }.disabled(all.isEmpty)
+                Button { sheet = .add } label: { Image(systemName: "plus.circle.fill").font(.title3) }
             }
-            .sheet(isPresented: $showShare) {
-                if let m = latest {
-                    ShareImageSheet(title: "Medidas") {
-                        MeasurementsShareCard(latest: m, first: all.first, heightCm: profiles.first?.heightCm ?? 170)
+            .sheet(item: $sheet) { s in
+                switch s {
+                case .add: AddMeasurementSheet()
+                case .part(let p): PartDetailView(part: p)
+                case .share:
+                    if let m = latest {
+                        ShareImageSheet(title: "Medidas") {
+                            MeasurementsShareCard(latest: m, first: all.first, heightCm: profiles.first?.heightCm ?? 170)
+                        }
                     }
                 }
             }
-            .sheet(isPresented: $showAdd) { AddMeasurementSheet() }
-            .sheet(item: $selectedPart) { PartDetailView(part: $0) }
         }
     }
 
@@ -57,11 +69,11 @@ struct MeasurementsView: View {
         Card {
             VStack(spacing: 14) {
                 Image(systemName: "ruler.fill").font(.system(size: 48)).foregroundStyle(Theme.gradient)
-                    .symbolEffect(.bounce, value: showAdd)
+                    
                 Text("Registre suas medidas").font(.title2.bold())
                 Text("Com fita métrica: cintura, quadril, pescoço, braços, pernas e mais. Isso libera estimativa de gordura pelo método da Marinha, relação cintura/altura, simetria e proporções ideais.")
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                Button { showAdd = true } label: {
+                Button { sheet = .add } label: {
                     Text("Adicionar medidas").font(.headline).foregroundStyle(.white)
                         .frame(maxWidth: .infinity).padding()
                         .background(Theme.gradient, in: RoundedRectangle(cornerRadius: 16))
@@ -268,7 +280,7 @@ struct MeasurementsView: View {
             ForEach(Array(BodyPart.allCases.enumerated()), id: \.element) { i, p in
                 let values = all.compactMap { e in e[p].map { (e.date, $0) } }
                 if let last = values.last {
-                    Button { selectedPart = p } label: {
+                    Button { sheet = .part(p) } label: {
                         Card {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(p.label).font(.caption).foregroundStyle(.secondary).lineLimit(1)

@@ -44,10 +44,26 @@ struct ProfileView: View {
     @Bindable private var workout = WorkoutPrefs.shared
     @State private var showScanner = false
     @State private var confirmReset = false
+    @State private var showProfiles = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Button { showProfiles = true } label: {
+                        HStack(spacing: 12) {
+                            ProfileAvatar(info: ProfileRegistry.shared.active, size: 40)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Perfil ativo: \(ProfileRegistry.shared.active.name)").font(.subheadline.bold())
+                                    .foregroundStyle(.primary)
+                                Text("\(ProfileRegistry.shared.profiles.count) perfil(is) · toque para trocar ou adicionar")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "person.2.fill").foregroundStyle(Theme.accent)
+                        }
+                    }
+                } header: { Text("Perfis da família") }
                 if let p = profiles.first {
                     header(p)
                     ProfileForm(profile: p)
@@ -103,6 +119,7 @@ struct ProfileView: View {
             .background(AnimatedBackground())
             .navigationTitle("Perfil")
             .sheet(isPresented: $showScanner) { ContentView() }
+            .sheet(isPresented: $showProfiles) { ProfileSwitcherView() }
             .confirmationDialog("Apagar \(entries.count) pesagens? Não dá para desfazer.",
                                 isPresented: $confirmReset, titleVisibility: .visible) {
                 Button("Apagar tudo", role: .destructive) { entries.forEach { context.delete($0) } }

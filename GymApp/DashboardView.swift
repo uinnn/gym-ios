@@ -12,6 +12,7 @@ struct DashboardView: View {
     @State private var metric: MetricID?
     @State private var showAddWeight = false
     @State private var showAddMeasure = false
+    @State private var showProfiles = false
 
     private var profile: UserProfile? { profiles.first }
     private var latest: WeightEntry? { entries.first }
@@ -70,7 +71,18 @@ struct DashboardView: View {
             }
             Spacer()
             BluetoothBadge()
+            Button { showProfiles = true } label: {
+                ProfileAvatar(info: ProfileRegistry.shared.active, size: 44)
+                    .overlay(alignment: .bottomTrailing) {
+                        if ProfileRegistry.shared.profiles.count > 1 {
+                            Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white).padding(3).background(Theme.accent, in: Circle())
+                        }
+                    }
+            }
+            .buttonStyle(PressableStyle())
         }
+        .sheet(isPresented: $showProfiles) { ProfileSwitcherView() }
     }
 
     private var greeting: String {

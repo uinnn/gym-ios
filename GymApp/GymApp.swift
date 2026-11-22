@@ -4,15 +4,16 @@ import SwiftData
 @main
 struct GymApp: App {
     @State private var scanner = ScaleScanner()
+    @State private var registry = ProfileRegistry.shared
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(scanner)
+                .modelContainer(registry.container(for: registry.activeID))
+                .id(registry.activeID)
+                .transition(.opacity)
         }
-        .modelContainer(for: [UserProfile.self, WeightEntry.self, MeasurementEntry.self, FoodLog.self,
-                               SavedFood.self, WaterLog.self, FastingSession.self, WorkoutSession.self,
-                               WorkoutRoutine.self])
     }
 }
 
@@ -31,6 +32,7 @@ struct RootView: View {
         let text: String
         let entry: WeightEntry
         let suspicious: Bool
+        var owner: ProfileInfo? = nil
         static func == (a: Toast, b: Toast) -> Bool { a.id == b.id }
     }
 
@@ -60,6 +62,24 @@ struct RootView: View {
         .fullScreenCover(isPresented: .constant(profiles.isEmpty)) {
             OnboardingView { }
         }
+        .onAppear { syncRegistry() }
+        .onChange(of: profileSignature) { _, _ in syncRegistry() }
+    }
+
+    private var profileSignature: String {
+        guard let p = profiles.first else { return "" }
+        return "\(p.name)|\(p.sexRaw)|\(p.birthDate.timeIntervalSince1970)|\(p.heightCm)|\(entries.first?.kg ?? 0)"
+    }
+
+    /// Mantém o resumo do perfil (lista de perfis) igual aos dados do banco.
+    private func syncRegistry() {
+        let reg = ProfileRegistry.shared
+        guard let p = profiles.first else { return }
+        reg.update(reg.activeID) {
+            if !p.name.isEmpty { $0.name = p.name }
+            $0.sexRaw = p.sexRaw; $0.birthDate = p.birthDate; $0.heightCm = p.heightCm
+            $0.lastKg = entries.first?.kg; $0.lastWeighed = entries.first?.date
+        }
     }
 
     @ViewBuilder private var toastView: some View {
@@ -70,11 +90,27 @@ struct RootView: View {
                     .symbolEffect(.bounce, value: toast.id)
                 Text(toast.text).font(.subheadline.bold()).lineLimit(2)
                 Spacer(minLength: 0)
+                if let owner = toast.owner {
+                    Button {
+                        let e = toast.entry
+                        ProfileRegistry.shared.addWeight(e.kg, date: e.date, to: owner.id)
+                        withAnimation(.spring) {
+                            context.delete(e)
+                            self.toast = nil
+                        }
+                        syncRegistry()
+                    } label: {
+                        HStack(spacing: 4) { Text(owner.emoji); Text("Salvar em \(owner.name)") }
+                    }
+                    .font(.caption.bold())
+                    .buttonStyle(.borderedProminent).tint(owner.color)
+                }
                 Button(toast.suspicious ? "Não sou eu" : "Desfazer") {
                     withAnimation(.spring) {
                         context.delete(toast.entry)
                         self.toast = nil
                     }
+                    syncRegistry()
                 }
                 .font(.caption.bold())
                 .buttonStyle(.bordered)
@@ -108,20 +144,23 @@ struct RootView: View {
         if hour < 10 { e.tags = [.morning] } else if hour >= 21 { e.tags = [.night] }
         context.insert(e)
 
+        let owner = (suspicious || recent.isEmpty) ? ProfileRegistry.shared.likelyOwner(of: s.kg) : nil
         var msg = "\(s.kg.fmt(2)) kg salvo"
         if let prev = entries.first { msg += " (\((s.kg - prev.kg).signed(2)))" }
         if suspicious { msg = "\(s.kg.fmt(2)) kg é bem diferente do seu habitual. É você?" }
-        let t = Toast(text: msg, entry: e, suspicious: suspicious)
+        if let owner { msg = "\(s.kg.fmt(2)) kg parece ser de \(owner.name) (último: \((owner.lastKg ?? 0).fmt(1)) kg)." }
+        let t = Toast(text: msg, entry: e, suspicious: suspicious || owner != nil, owner: owner)
+        ProfileRegistry.shared.update(ProfileRegistry.shared.activeID) { $0.lastKg = s.kg; $0.lastWeighed = s.date }
         withAnimation(.spring(duration: 0.5)) { toast = t }
 
-        if store.autoOpenReport && !suspicious {
+        if store.autoOpenReport && !t.suspicious {
             Task {
                 try? await Task.sleep(for: .seconds(2.5))
                 if toast == t { report = e }
             }
         }
         Task {
-            try? await Task.sleep(for: .seconds(suspicious ? 10 : 4))
+            try? await Task.sleep(for: .seconds(t.suspicious ? 12 : 4))
             if toast == t { withAnimation(.easeOut) { toast = nil } }
         }
     }

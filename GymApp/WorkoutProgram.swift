@@ -283,7 +283,8 @@ struct ProgramGeneratorSheet: View {
                     Text(prefs.advanced
                          ? "Prioridade: +1 série nos exercícios do músculo. Alta: +1 série e +1 exercício. Máxima: +2 séries e +1 exercício. Músculos em foco que nenhum dia treina entram no dia mais leve."
                          : "Os músculos selecionados ganham séries extras e um exercício a mais nos dias em que são treinados.")
-                }                Section {
+                }
+                Section {
                     ForEach(preview) { r in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {

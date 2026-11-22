@@ -830,7 +830,8 @@ struct BodyAnalysis {
     var bodyType: (name: String, detail: String) {
         let fatLevel = bodyFat < fatRange.low ? 0 : (bodyFat < fatRange.healthy ? 1 : 2)
         let ffmi = lbm / (h * h)
-        let muscleLevel = ffmi < (input.isMale ? 18 : 15) ? 0 : (ffmi < (input.isMale ? 21 : 17.5) ? 1 : 2)        let table = [
+        let muscleLevel = ffmi < (input.isMale ? 18 : 15) ? 0 : (ffmi < (input.isMale ? 21 : 17.5) ? 1 : 2)
+        let table = [
             ["Magro", "Magro com músculo", "Atlético magro"],
             ["Pouco músculo", "Equilibrado", "Musculoso"],
             ["Obesidade oculta", "Acima do peso", "Robusto / forte"],

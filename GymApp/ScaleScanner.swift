@@ -52,6 +52,34 @@ final class ScaleScanner: NSObject {
     var showOnlyNamed = true
     var connectedID: UUID?
 
+    /// Leitura ao vivo da balança (nil quando ninguém está em cima).
+    var live: WeightReading?
+    var liveUpdatedAt: Date?
+    /// Último peso estável recebido. Muda uma vez por pesagem.
+    var lastStable: StableWeight?
+
+    struct StableWeight: Equatable {
+        let id = UUID()
+        let kg: Double
+        let date: Date
+    }
+
+    private func handleLive(_ data: Data) {
+        guard let r = OKOKFormat.decode(data) else {
+            // Pacote de balança vazia (peso 0): limpa a leitura ao vivo.
+            if data.count == 15, data.first == 0xC0, live != nil { live = nil }
+            return
+        }
+        let wasStable = live?.isStable ?? false
+        live = r
+        liveUpdatedAt = .now
+        if r.isStable && !wasStable {
+            if let last = lastStable, abs(last.kg - r.kg) < 0.05,
+               Date.now.timeIntervalSince(last.date) < 30 { return }
+            lastStable = StableWeight(kg: r.kg, date: .now)
+        }
+    }
+
     private var central: CBCentralManager!
 
     override init() {
@@ -110,8 +138,9 @@ extension ScaleScanner: CBCentralManagerDelegate {
         device.name = name
         device.rssi = RSSI.intValue
         device.lastSeen = .now
-        if let mfg = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data {
+        if let mfg = mfgData {
             device.add(mfg, source: "adv")
+            handleLive(mfg)
         }
         devices[peripheral.identifier] = device
     }

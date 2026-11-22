@@ -26,3 +26,22 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.gym.app
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
+  GymTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [GymTests]
+    dependencies:
+      - target: Gym
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.gym.app.tests
+schemes:
+  Gym:
+    build:
+      targets:
+        Gym: all
+        GymTests: [test]
+    test:
+      config: Release
+      targets: [GymTests]

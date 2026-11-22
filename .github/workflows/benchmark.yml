@@ -1,0 +1,30 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main, bench-baseline]
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gerar projeto
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Rodar benchmark no simulador
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(x['udid'] for k,v in sorted(d.items(),reverse=True) if 'iOS' in k for x in v if x['name'].startswith('iPhone')))")
+          echo "Simulador: $UDID"
+          set -o pipefail
+          xcodebuild test -project Gym.xcodeproj -scheme Gym -configuration Release \
+            -destination "id=$UDID" ENABLE_TESTABILITY=YES CODE_SIGNING_ALLOWED=NO 2>&1 | tee test.log | grep -E "BENCH|error:|Test Suite|passed|failed" || true
+          grep -E "^BENCH " test.log | sed 's/^.*BENCH/BENCH/' > bench.txt || true
+          cat bench.txt
+          test -s bench.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ github.ref_name }}
+          path: bench.txt

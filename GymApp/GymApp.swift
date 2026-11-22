@@ -11,7 +11,8 @@ struct GymApp: App {
                 .environment(scanner)
         }
         .modelContainer(for: [UserProfile.self, WeightEntry.self, MeasurementEntry.self, FoodLog.self,
-                               SavedFood.self, WaterLog.self, FastingSession.self])
+                               SavedFood.self, WaterLog.self, FastingSession.self, WorkoutSession.self,
+                               WorkoutRoutine.self])
     }
 }
 
@@ -41,6 +42,8 @@ struct RootView: View {
                 .tabItem { Label("Corpo", systemImage: "figure.stand") }.tag(1)
             NutritionView()
                 .tabItem { Label("Alimentação", systemImage: "fork.knife") }.tag(2)
+            WorkoutsView()
+                .tabItem { Label("Treinos", systemImage: "dumbbell.fill") }.tag(3)
             ProfileView()
                 .tabItem { Label("Perfil", systemImage: "person.crop.circle") }.tag(4)
         }

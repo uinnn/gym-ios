@@ -32,7 +32,9 @@ final class ProfileRegistry {
     @ObservationIgnored private var containers: [String: ModelContainer] = [:]
 
     static let schema = Schema([UserProfile.self, WeightEntry.self, MeasurementEntry.self, FoodLog.self, SavedFood.self,
-                                WaterLog.self, FastingSession.self, WorkoutSession.self, WorkoutRoutine.self])
+                                WaterLog.self, FastingSession.self, WorkoutSession.self, WorkoutRoutine.self,
+                                MoodEntry.self, SleepEntry.self, MindSession.self, GratitudeEntry.self, Habit.self,
+                                HabitLog.self, AssessmentResult.self])
 
     private init() {
         if let data = d.data(forKey: "profiles"), let list = try? JSONDecoder().decode([ProfileInfo].self, from: data), !list.isEmpty {

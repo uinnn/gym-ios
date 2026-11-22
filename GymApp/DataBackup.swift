@@ -15,6 +15,22 @@ struct Backup: Codable {
     var sessions: [SessionDTO] = []
     var routines: [RoutineDTO] = []
     var settings: [String: String] = [:]
+    // saúde mental (opcionais: backups antigos não têm)
+    var moods: [MoodDTO]?
+    var sleeps: [SleepDTO]?
+    var practices: [PracticeDTO]?
+    var gratitude: [GratitudeDTO]?
+    var habits: [HabitDTO]?
+    var habitLogs: [HabitLogDTO]?
+    var assessments: [AssessmentDTO]?
+
+    struct MoodDTO: Codable { var date: Date, mood: Int, energy: Int, stress: Int, anxiety: Int, tagsRaw: String, note: String }
+    struct SleepDTO: Codable { var bedtime: Date, wake: Date, quality: Int, awakenings: Int, note: String }
+    struct PracticeDTO: Codable { var date: Date, kindRaw: String, detail: String, seconds: Double }
+    struct GratitudeDTO: Codable { var date: Date, text: String }
+    struct HabitDTO: Codable { var uid: String, name: String, icon: String, colorIndex: Int, order: Int, archived: Bool }
+    struct HabitLogDTO: Codable { var habitUID: String, day: Date }
+    struct AssessmentDTO: Codable { var date: Date, kindRaw: String, answersRaw: String, score: Int }
 
     struct ProfileDTO: Codable {
         var name: String, sexRaw: String, birthDate: Date, heightCm: Double, goalWeightKg: Double
@@ -80,6 +96,13 @@ enum BackupManager {
         b.routines = fetch(ctx, WorkoutRoutine.self).map {
             .init(name: $0.name, icon: $0.icon, order: $0.order, weekday: $0.weekday, items: $0.items)
         }
+        b.moods = fetch(ctx, MoodEntry.self).map { .init(date: $0.date, mood: $0.mood, energy: $0.energy, stress: $0.stress, anxiety: $0.anxiety, tagsRaw: $0.tagsRaw, note: $0.note) }
+        b.sleeps = fetch(ctx, SleepEntry.self).map { .init(bedtime: $0.bedtime, wake: $0.wake, quality: $0.quality, awakenings: $0.awakenings, note: $0.note) }
+        b.practices = fetch(ctx, MindSession.self).map { .init(date: $0.date, kindRaw: $0.kindRaw, detail: $0.detail, seconds: $0.seconds) }
+        b.gratitude = fetch(ctx, GratitudeEntry.self).map { .init(date: $0.date, text: $0.text) }
+        b.habits = fetch(ctx, Habit.self).map { .init(uid: $0.uid, name: $0.name, icon: $0.icon, colorIndex: $0.colorIndex, order: $0.order, archived: $0.archived) }
+        b.habitLogs = fetch(ctx, HabitLog.self).map { .init(habitUID: $0.habitUID, day: $0.day) }
+        b.assessments = fetch(ctx, AssessmentResult.self).map { .init(date: $0.date, kindRaw: $0.kindRaw, answersRaw: $0.answersRaw, score: $0.score) }
         let d = UserDefaults.standard
         for k in Backup.settingKeys { if let v = d.string(forKey: k) { b.settings[k] = v } }
         b.settings["favExercises"] = (d.stringArray(forKey: "favExercises") ?? []).joined(separator: ",")
@@ -184,6 +207,7 @@ enum BackupManager {
             e.weekday = r.weekday
             ctx.insert(e); c.routines += 1
         }
+        restoreMind(b, ctx, key)
         let d = UserDefaults.standard
         for (k, v) in b.settings {
             if k == "favExercises" {
@@ -197,7 +221,55 @@ enum BackupManager {
         return c
     }
 
+    private static func restoreMind(_ b: Backup, _ ctx: ModelContext, _ key: (Date) -> Int) {
+        let mo0 = Set(fetch(ctx, MoodEntry.self).map { key($0.date) })
+        for m in b.moods ?? [] where !mo0.contains(key(m.date)) {
+            let e = MoodEntry(date: m.date, mood: m.mood)
+            e.energy = m.energy; e.stress = m.stress; e.anxiety = m.anxiety; e.tagsRaw = m.tagsRaw; e.note = m.note
+            ctx.insert(e)
+        }
+        let sl0 = Set(fetch(ctx, SleepEntry.self).map { key($0.wake) })
+        for s in b.sleeps ?? [] where !sl0.contains(key(s.wake)) {
+            let e = SleepEntry(bedtime: s.bedtime, wake: s.wake, quality: s.quality)
+            e.awakenings = s.awakenings; e.note = s.note
+            ctx.insert(e)
+        }
+        let pr0 = Set(fetch(ctx, MindSession.self).map { key($0.date) })
+        for p in b.practices ?? [] where !pr0.contains(key(p.date)) {
+            ctx.insert(MindSession(kind: PracticeKind(rawValue: p.kindRaw) ?? .breathing, detail: p.detail, seconds: p.seconds, date: p.date))
+        }
+        let gr0 = Set(fetch(ctx, GratitudeEntry.self).map { key($0.date) })
+        for g in b.gratitude ?? [] where !gr0.contains(key(g.date)) {
+            let e = GratitudeEntry(date: g.date, items: [])
+            e.text = g.text
+            ctx.insert(e)
+        }
+        let h0 = Set(fetch(ctx, Habit.self).map(\.uid))
+        for h in b.habits ?? [] where !h0.contains(h.uid) {
+            let e = Habit(name: h.name, icon: h.icon, colorIndex: h.colorIndex, order: h.order)
+            e.uid = h.uid; e.archived = h.archived
+            ctx.insert(e)
+        }
+        let hl0 = Set(fetch(ctx, HabitLog.self).map { "\($0.habitUID)-\(key($0.day))" })
+        for l in b.habitLogs ?? [] where !hl0.contains("\(l.habitUID)-\(key(l.day))") {
+            ctx.insert(HabitLog(habitUID: l.habitUID, day: l.day))
+        }
+        let as0 = Set(fetch(ctx, AssessmentResult.self).map { key($0.date) })
+        for a in b.assessments ?? [] where !as0.contains(key(a.date)) {
+            let e = AssessmentResult(kind: AssessmentKind(rawValue: a.kindRaw) ?? .phq9, answers: [])
+            e.date = a.date; e.answersRaw = a.answersRaw; e.score = a.score
+            ctx.insert(e)
+        }
+    }
+
     static func deleteAll(_ ctx: ModelContext, keepProfile: Bool) {
+        fetch(ctx, MoodEntry.self).forEach { ctx.delete($0) }
+        fetch(ctx, SleepEntry.self).forEach { ctx.delete($0) }
+        fetch(ctx, MindSession.self).forEach { ctx.delete($0) }
+        fetch(ctx, GratitudeEntry.self).forEach { ctx.delete($0) }
+        fetch(ctx, Habit.self).forEach { ctx.delete($0) }
+        fetch(ctx, HabitLog.self).forEach { ctx.delete($0) }
+        fetch(ctx, AssessmentResult.self).forEach { ctx.delete($0) }
         fetch(ctx, WeightEntry.self).forEach { ctx.delete($0) }
         fetch(ctx, MeasurementEntry.self).forEach { ctx.delete($0) }
         fetch(ctx, FoodLog.self).forEach { ctx.delete($0) }

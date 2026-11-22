@@ -46,8 +46,8 @@ struct RootView: View {
                 .tabItem { Label("Alimentação", systemImage: "fork.knife") }.tag(2)
             WorkoutsView()
                 .tabItem { Label("Treinos", systemImage: "dumbbell.fill") }.tag(3)
-            ProfileView()
-                .tabItem { Label("Perfil", systemImage: "person.crop.circle") }.tag(4)
+            MindView()
+                .tabItem { Label("Mente", systemImage: "brain.head.profile") }.tag(4)
         }
         .tint(Theme.accent)
         .preferredColorScheme(store.appearance.scheme)

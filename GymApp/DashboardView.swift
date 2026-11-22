@@ -13,6 +13,7 @@ struct DashboardView: View {
     @State private var showAddWeight = false
     @State private var showAddMeasure = false
     @State private var showProfiles = false
+    @State private var showSettings = false
 
     private var profile: UserProfile? { profiles.first }
     private var latest: WeightEntry? { entries.first }
@@ -70,6 +71,11 @@ struct DashboardView: View {
                 Text(greeting).font(.largeTitle.bold())
             }
             Spacer()
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape.fill").font(.title3).foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44).background(.ultraThinMaterial, in: Circle())
+            }
+            .buttonStyle(PressableStyle())
             BluetoothBadge()
             Button { showProfiles = true } label: {
                 ProfileAvatar(info: ProfileRegistry.shared.active, size: 44)
@@ -83,6 +89,7 @@ struct DashboardView: View {
             .buttonStyle(PressableStyle())
         }
         .sheet(isPresented: $showProfiles) { ProfileSwitcherView() }
+        .sheet(isPresented: $showSettings) { ProfileView() }
     }
 
     private var greeting: String {

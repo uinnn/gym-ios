@@ -485,17 +485,24 @@ struct BodyInputs {
     var parts: [BodyPart: Double] = [:]
 
     init(kg: Double, profile: UserProfile, measurement: MeasurementEntry? = nil) {
+        var p: [BodyPart: Double] = [:]
+        if let m = measurement { for part in BodyPart.allCases { if let v = m[part] { p[part] = v } } }
+        self.init(kg: kg, profile: profile, parts: p)
+    }
+
+    /// Versão rápida: recebe as medidas já prontas (sem criar objetos do banco).
+    init(kg: Double, profile: UserProfile, parts: [BodyPart: Double]) {
         self.kg = kg
         heightCm = profile.heightCm
         age = profile.age
         isMale = profile.sex == .male
         activity = profile.activity.factor
         goal = profile.goal
-        neck = measurement?.neck
-        waist = measurement?.waist ?? profile.waistCm
-        hip = measurement?.hip
-        if let m = measurement { for p in BodyPart.allCases { if let v = m[p] { parts[p] = v } } }
-        if parts[.waist] == nil, let w = profile.waistCm { parts[.waist] = w }
+        self.parts = parts
+        if self.parts[.waist] == nil, let w = profile.waistCm { self.parts[.waist] = w }
+        neck = self.parts[.neck]
+        waist = self.parts[.waist]
+        hip = self.parts[.hip]
     }
 
     func with(kg: Double) -> BodyInputs { var c = self; c.kg = kg; return c }
@@ -610,9 +617,26 @@ struct BodyAnalysis {
         standard = 22 * h * h
     }
 
-    // MARK: Lista completa
+    // MARK: Lista completa (calculada uma vez e guardada)
+
+    /// Guarda os resultados: cada análise calcula suas ~80 métricas só uma vez,
+    /// em vez de recalcular tudo a cada consulta `análise[id]`.
+    final class Cache {
+        var metrics: [Metric]?
+        var byID: [MetricID: Metric] = [:]
+        var bodyScore: Double?
+    }
+    private let cache = Cache()
 
     var metrics: [Metric] {
+        if let m = cache.metrics { return m }
+        let m = computeMetrics()
+        cache.metrics = m
+        cache.byID = Dictionary(m.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return m
+    }
+
+    private func computeMetrics() -> [Metric] {
         let W = input.kg, male = input.isMale, A = Double(input.age), h2 = h * h
         let fr = fatRange
         var out: [Metric] = []
@@ -800,7 +824,10 @@ struct BodyAnalysis {
         return out
     }
 
-    subscript(_ id: MetricID) -> Metric? { metrics.first { $0.id == id } }
+    subscript(_ id: MetricID) -> Metric? {
+        if cache.metrics == nil { _ = metrics }
+        return cache.byID[id]
+    }
 
     /// Componentes da pontuação (0–100 cada) e seus pesos.
     var scoreParts: [(name: String, score: Double, weight: Double)] {
@@ -832,6 +859,13 @@ struct BodyAnalysis {
 
     /// Nota 0–100: média ponderada de gordura, músculo, IMC, visceral e cintura/idade metabólica.
     var bodyScore: Double {
+        if let s = cache.bodyScore { return s }
+        let s = computeBodyScore()
+        cache.bodyScore = s
+        return s
+    }
+
+    private func computeBodyScore() -> Double {
         let p = scoreParts
         let total = p.map { $0.score * $0.weight }.reduce(0, +) / p.map(\.weight).reduce(0, +)
         return min(max(total, 5), 100).rounded()

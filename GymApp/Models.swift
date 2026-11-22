@@ -251,12 +251,22 @@ extension Array where Element == MeasurementEntry {
 
     /// Junta as últimas medidas de cada parte numa entrada virtual (para os cálculos).
     func merged(before date: Date = .distantFuture) -> MeasurementEntry? {
-        guard !isEmpty else { return nil }
+        let parts = mergedParts(before: date)
+        guard !parts.isEmpty else { return nil }
         let m = MeasurementEntry(date: date)
-        var any = false
-        for p in BodyPart.allCases {
-            if let v = latestValue(p, before: date) { m[p] = v; any = true }
+        for (p, v) in parts { m[p] = v }
+        return m
+    }
+
+    /// Valor mais recente de cada parte até a data, numa única passada (sem criar objetos).
+    func mergedParts(before date: Date = .distantFuture) -> [BodyPart: Double] {
+        var out: [BodyPart: Double] = [:]
+        var when: [BodyPart: Date] = [:]
+        for e in self where e.date <= date {
+            for p in BodyPart.allCases {
+                if let v = e[p], e.date >= (when[p] ?? .distantPast) { out[p] = v; when[p] = e.date }
+            }
         }
-        return any ? m : nil
+        return out
     }
 }

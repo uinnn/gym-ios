@@ -138,7 +138,7 @@ struct ProgressRing: View {
         .onChange(of: progress) { _, v in withAnimation(.spring(duration: 0.8)) { shown = clamp(v) } }
     }
 
-    private func clamp(_ v: Double) -> Double { min(max(v, 0), 1) }
+    private func clamp(_ v: Double) -> Double { v.isFinite ? min(max(v, 0), 1) : 0 }
 }
 
 /// Barra fina de progresso animada.
@@ -157,8 +157,12 @@ struct ProgressBar: View {
             }
         }
         .frame(height: height)
-        .onAppear { withAnimation(.spring(duration: 1, bounce: 0.2).delay(0.1)) { shown = min(max(progress, 0), 1) } }
-        .onChange(of: progress) { _, v in withAnimation(.spring) { shown = min(max(v, 0), 1) } }
+        .onAppear { withAnimation(.spring(duration: 1, bounce: 0.2).delay(0.1)) { shown = Self.clamp(progress) } }
+        .onChange(of: progress) { _, v in withAnimation(.spring) { shown = Self.clamp(v) } }
+    }
+
+    /// Protege contra NaN/infinito (ex.: divisão por meta zero), que quebrariam o desenho.
+    static func clamp(_ v: Double) -> Double { v.isFinite ? min(max(v, 0), 1) : 0
     }
 }
 
@@ -225,7 +229,8 @@ struct RangeBar: View {
             let w = geo.size.width
             let span = range.upperBound - range.lowerBound
             let x: (Double) -> Double = { v in
-                (min(max(v, range.lowerBound), range.upperBound) - range.lowerBound) / span * w
+                guard v.isFinite, span > 0 else { return 0 }
+                return (min(max(v, range.lowerBound), range.upperBound) - range.lowerBound) / span * w
             }
             ZStack(alignment: .leading) {
                 HStack(spacing: 3) {

@@ -90,11 +90,18 @@ struct HistoryView: View {
     }
 
     /// Média móvel de 7 dias (por data, não por número de pesagens).
+    /// Janela deslizante sobre a lista ordenada: O(n) em vez de O(n²).
     private var movingAverage: [(date: Date, kg: Double)] {
-        entries.map { e in
-            let window = all.filter { $0.date <= e.date && $0.date > e.date.addingTimeInterval(-7 * 86400) }
-            return (e.date, window.map(\.kg).reduce(0, +) / Double(window.count))
+        let list = all
+        guard let firstDate = entries.first?.date else { return [] }
+        var out: [(date: Date, kg: Double)] = []
+        var lo = 0, sum = 0.0, hi = 0
+        for e in list where e.date <= (entries.last?.date ?? .distantFuture) {
+            sum += e.kg; hi += 1
+            while list[lo].date <= e.date.addingTimeInterval(-7 * 86400) { sum -= list[lo].kg; lo += 1 }
+            if e.date >= firstDate { out.append((e.date, sum / Double(hi - lo))) }
         }
+        return out
     }
 
     private var chartCard: some View {

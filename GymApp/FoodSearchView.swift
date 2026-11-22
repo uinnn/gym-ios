@@ -44,6 +44,8 @@ struct FoodSearchView: View {
     }
 
     var body: some View {
+        let results = self.results          // calculado uma vez por atualização
+        let savedByID = Dictionary(saved.map { ($0.foodID, $0) }, uniquingKeysWith: { a, _ in a })
         NavigationStack {
             List {
                 Section {
@@ -81,7 +83,7 @@ struct FoodSearchView: View {
                     ContentUnavailableView(emptyText, systemImage: "fork.knife")
                 }
                 ForEach(results) { food in
-                    Button { picked = food } label: { FoodRow(food: food, saved: saved.first { $0.foodID == food.id }) }
+                    Button { picked = food } label: { FoodRow(food: food, saved: savedByID[food.id]) }
                         .buttonStyle(.plain)
                 }
             }

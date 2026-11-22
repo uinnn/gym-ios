@@ -181,7 +181,7 @@ struct StaticRing: View {
     var body: some View {
         ZStack {
             Circle().stroke(Color.primary.opacity(0.15), lineWidth: lineWidth)
-            Circle().trim(from: 0, to: min(max(progress, 0), 1))
+            Circle().trim(from: 0, to: ProgressBar.clamp(progress))
                 .stroke(Color.primary, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }

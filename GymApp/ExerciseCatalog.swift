@@ -229,12 +229,18 @@ enum ExerciseCatalog {
 
     static let byID: [String: Exercise] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
 
+    /// Nome + músculos já normalizados (sem acento, minúsculo), calculado uma vez.
+    private static let searchKeys: [String: String] = Dictionary(uniqueKeysWithValues: all.map {
+        ($0.id, FoodDatabase.normalize($0.name + " " + $0.primary.map(\.label).joined(separator: " ")))
+    })
+
     static func search(_ q: String, muscle: Muscle? = nil, equipment: Equipment? = nil) -> [Exercise] {
         let words = FoodDatabase.normalize(q).split(separator: " ").map(String.init)
         return all.filter { e in
-            (muscle == nil || e.allMuscles.contains(muscle!)) &&
-            (equipment == nil || e.equipment == equipment) &&
-            (words.isEmpty || words.allSatisfy { FoodDatabase.normalize(e.name + " " + e.primary.map(\.label).joined(separator: " ")).contains($0) })
+            if let muscle, !e.allMuscles.contains(muscle) { return false }
+            if let equipment, e.equipment != equipment { return false }
+            guard !words.isEmpty, let key = searchKeys[e.id] else { return true }
+            return words.allSatisfy { key.contains($0) }
         }
     }
 }

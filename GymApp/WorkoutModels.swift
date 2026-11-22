@@ -151,8 +151,8 @@ final class WorkoutSession {
     }
 
     var exercises: [SessionExercise] {
-        get { (try? JSONDecoder().decode([SessionExercise].self, from: data)) ?? [] }
-        set { data = (try? JSONEncoder().encode(newValue)) ?? Data() }
+        get { Caches.sessions.decode(data) ?? [] }
+        set { data = Caches.sessions.encode(newValue) }
     }
 
     var duration: TimeInterval { (end ?? .now).timeIntervalSince(start) }
@@ -189,8 +189,8 @@ final class WorkoutRoutine {
     }
 
     var items: [RoutineItem] {
-        get { (try? JSONDecoder().decode([RoutineItem].self, from: data)) ?? [] }
-        set { data = (try? JSONEncoder().encode(newValue)) ?? Data() }
+        get { Caches.routines.decode(data) ?? [] }
+        set { data = Caches.routines.encode(newValue) }
     }
 
     var muscles: [Muscle] {
@@ -422,28 +422,34 @@ enum WorkoutMath {
         return out
     }
 
-    /// Melhor série de um exercício em uma lista de sessões.
+    /// Melhor série (maior 1RM estimado) de um exercício e o maior volume numa sessão.
     static func best(_ exerciseID: String, in sessions: [WorkoutSession]) -> (e1RM: Double, kg: Double, reps: Int, volume: Double)? {
-        var b: (Double, Double, Int, Double)?
+        var top: SetLog?
+        var maxVolume = 0.0
         for s in sessions {
             for e in s.exercises where e.exerciseID == exerciseID {
-                let vol = e.workSets.map(\.volume).reduce(0, +)
-                for set in e.workSets {
-                    if b == nil || set.e1RM > b!.0 { b = (set.e1RM, set.kg, set.reps, max(vol, b?.3 ?? 0)) }
-                }
+                let work = e.workSets
+                maxVolume = max(maxVolume, work.map(\.volume).reduce(0, +))
+                for set in work where set.e1RM > (top?.e1RM ?? 0) { top = set }
             }
         }
-        return b.map { (e1RM: $0.0, kg: $0.1, reps: $0.2, volume: $0.3) }
+        guard let t = top else { return nil }
+        return (e1RM: t.e1RM, kg: t.kg, reps: t.reps, volume: maxVolume)
     }
 
     /// Últimas séries feitas desse exercício (para mostrar "anterior").
+    /// Percorre uma vez guardando a sessão mais recente, em vez de ordenar todo o histórico.
     static func previous(_ exerciseID: String, before date: Date, in sessions: [WorkoutSession]) -> [SetLog] {
-        sessions.filter { $0.start < date && !$0.isActive }
-            .sorted { $0.start > $1.start }
-            .lazy.compactMap { $0.exercises.first { $0.exerciseID == exerciseID }?.doneSets }
-            .first { !$0.isEmpty } ?? []
+        var bestDate = Date.distantPast
+        var result: [SetLog] = []
+        for s in sessions where s.start < date && s.start > bestDate && !s.isActive {
+            if let done = s.exercises.first(where: { $0.exerciseID == exerciseID })?.doneSets, !done.isEmpty {
+                bestDate = s.start
+                result = done
+            }
+        }
+        return result
     }
-
     static func durationText(_ t: TimeInterval) -> String {
         let m = Int(t) / 60
         return m >= 60 ? "\(m / 60)h \(m % 60)min" : "\(m) min"

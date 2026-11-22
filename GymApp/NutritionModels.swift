@@ -187,11 +187,11 @@ final class SavedFood {
 
     init(_ food: FoodItem, custom: Bool = false) {
         foodID = food.id
-        data = (try? JSONEncoder().encode(food)) ?? Data()
+        data = Caches.foods.encode(food)
         isCustom = custom
     }
 
-    var food: FoodItem? { try? JSONDecoder().decode(FoodItem.self, from: data) }
+    var food: FoodItem? { Caches.foods.decode(data) }
 }
 
 @Model

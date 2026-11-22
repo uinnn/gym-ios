@@ -3,29 +3,74 @@ import SwiftData
 import Charts
 
 /// Junta perfil, pesagens e medidas para calcular análises em qualquer ponto do tempo.
+///
+/// Desempenho: as medidas são mescladas uma vez numa linha do tempo (busca binária por data)
+/// e cada análise fica guardada, então `current`, `start`, `goal` e `series` não recalculam nada.
 struct AnalysisContext {
     let profile: UserProfile
     let entries: [WeightEntry]          // ordem crescente de data
     let measurements: [MeasurementEntry]
 
+    private final class Cache {
+        var timeline: [(date: Date, parts: [BodyPart: Double])] = []
+        var latestParts: [BodyPart: Double] = [:]
+        var analyses: [Int: BodyAnalysis] = [:]
+        var goal: BodyAnalysis?
+    }
+    private let cache = Cache()
+
     init?(profile: UserProfile?, entries: [WeightEntry], measurements: [MeasurementEntry]) {
         guard let profile, !entries.isEmpty else { return nil }
         self.profile = profile
-        self.entries = entries.sorted { $0.date < $1.date }
+        // @Query normalmente já entrega em ordem; só ordena se precisar.
+        let ordered = zip(entries, entries.dropFirst()).allSatisfy { $0.date <= $1.date }
+        self.entries = ordered ? entries : entries.sorted { $0.date < $1.date }
         self.measurements = measurements
+        // linha do tempo: após cada medição, o valor mais recente de cada parte
+        var running: [BodyPart: Double] = [:]
+        for m in measurements.sorted(by: { $0.date < $1.date }) {
+            for p in BodyPart.allCases { if let v = m[p] { running[p] = v } }
+            cache.timeline.append((m.date, running))
+        }
+        cache.latestParts = running
+    }
+
+    /// Medidas válidas na data (a última medição feita até lá).
+    private func parts(at date: Date) -> [BodyPart: Double] {
+        let t = cache.timeline
+        var lo = 0, hi = t.count - 1, found = -1
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            if t[mid].date <= date { found = mid; lo = mid + 1 } else { hi = mid - 1 }
+        }
+        return found >= 0 ? t[found].parts : [:]
+    }
+
+    private func analysis(at index: Int) -> BodyAnalysis {
+        if let a = cache.analyses[index] { return a }
+        let e = entries[index]
+        // a pesagem mais recente usa sempre as medidas mais recentes (mesmo se feitas depois)
+        let p = index == entries.count - 1 ? cache.latestParts : parts(at: e.date)
+        let a = BodyAnalysis(BodyInputs(kg: e.kg, profile: profile, parts: p))
+        cache.analyses[index] = a
+        return a
     }
 
     /// Análise de uma pesagem. Usa as medidas feitas até aquela data; a pesagem mais recente
     /// usa sempre as medidas mais recentes (mesmo que tenham sido feitas depois de pesar).
     func analysis(_ e: WeightEntry) -> BodyAnalysis {
-        let isLatest = e.persistentModelID == entries.last?.persistentModelID
-        let m = isLatest ? measurements.merged() : (measurements.merged(before: e.date) ?? nil)
-        return BodyAnalysis(BodyInputs(kg: e.kg, profile: profile, measurement: m))
+        if let i = entries.lastIndex(where: { $0.persistentModelID == e.persistentModelID }) { return analysis(at: i) }
+        return BodyAnalysis(BodyInputs(kg: e.kg, profile: profile, parts: parts(at: e.date)))
     }
 
-    var current: BodyAnalysis { analysis(entries.last!) }
-    var start: BodyAnalysis { analysis(entries.first!) }
-    var goal: BodyAnalysis { BodyAnalysis(current.input.with(kg: profile.goalWeightKg)) }
+    var current: BodyAnalysis { analysis(at: entries.count - 1) }
+    var start: BodyAnalysis { analysis(at: 0) }
+    var goal: BodyAnalysis {
+        if let g = cache.goal { return g }
+        let g = BodyAnalysis(current.input.with(kg: profile.goalWeightKg))
+        cache.goal = g
+        return g
+    }
 
     func progress(_ id: MetricID) -> GoalProgress? {
         guard let c = current[id], let s = start[id], let g = goal[id] else { return nil }
@@ -34,10 +79,9 @@ struct AnalysisContext {
 
     /// Série histórica de uma métrica.
     func series(_ id: MetricID) -> [(date: Date, value: Double)] {
-        entries.compactMap { e in analysis(e)[id].map { (e.date, $0.value) } }
+        entries.indices.compactMap { i in analysis(at: i)[id].map { (entries[i].date, $0.value) } }
     }
 }
-
 // MARK: - Aba Métricas
 
 struct MetricsView: View {

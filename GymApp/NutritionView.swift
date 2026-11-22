@@ -45,7 +45,41 @@ struct NutritionView: View {
     @State private var showShare = false
 
     private var cal: Calendar { Calendar.current }
-    private var dayLogs: [FoodLog] { logs.filter { cal.isSameDay($0.date, day) } }
+    /// Guarda resultados entre atualizações da tela (o corpo da view é avaliado muitas vezes).
+    private final class Memo {
+        var logsKey = "", dayLogs: [FoodLog] = []
+        var targetsKey = "", targets: NutritionTargets = .fallback, nutrientContext: NutrientContext?
+    }
+    @State private var memo = Memo()
+
+    private var dayLogs: [FoodLog] {
+        let key = "\(day.timeIntervalSince1970)|\(logs.count)|\(logs.last?.date.timeIntervalSince1970 ?? 0)"
+        if memo.logsKey != key {
+            memo.dayLogs = logs.filter { cal.isSameDay($0.date, day) }
+            memo.logsKey = key
+        }
+        return memo.dayLogs
+    }
+
+    private var targetsKey: String {
+        let p = profiles.first
+        return "\(weights.count)|\(weights.last?.kg ?? 0)|\(measurements.count)|\(p?.heightCm ?? 0)|\(p?.sexRaw ?? "")|\(p?.birthDate.timeIntervalSince1970 ?? 0)|\(p?.activityRaw ?? "")|\(p?.goalRaw ?? "")|\(p?.goalWeightKg ?? 0)"
+    }
+
+    private func refreshTargets() {
+        let key = targetsKey
+        guard memo.targetsKey != key else { return }
+        memo.targetsKey = key
+        let ctx = AnalysisContext(profile: profiles.first, entries: weights, measurements: measurements)
+        let t = ctx.map { NutritionTargets(analysis: $0.current) } ?? .fallback
+        memo.targets = t
+        memo.nutrientContext = NutrientContext(male: (profiles.first?.sex ?? .male) == .male, age: profiles.first?.age ?? 30, targets: t)
+    }
+
+    private var nutrientContext: NutrientContext {
+        refreshTargets()
+        return memo.nutrientContext ?? NutrientContext(male: true, age: 30, targets: .fallback)
+    }
     private var dayWater: Double { water.filter { cal.isSameDay($0.date, day) }.map(\.ml).reduce(0, +) }
     private var totals: Nutrients { dayLogs.map(\.nutrients).total }
     /// Calorias gastas em treinos no dia escolhido.
@@ -54,9 +88,8 @@ struct NutritionView: View {
     }
 
     private var targets: NutritionTargets {
-        guard let ctx = AnalysisContext(profile: profiles.first, entries: weights, measurements: measurements)
-        else { return .fallback }
-        return NutritionTargets(analysis: ctx.current)
+        refreshTargets()
+        return memo.targets
     }
 
     var body: some View {
@@ -214,7 +247,7 @@ struct NutritionView: View {
 
     private var microsCard: some View {
         NutrientsDayCard(n: totals, m: dayLogs.compactMap(\.micros).total,
-                         ctx: NutrientContext.make(profiles.first, weights, measurements)) { nutrientDetail = $0 }
+                         ctx: nutrientContext) { nutrientDetail = $0 }
     }
 
     private func copyYesterday() {
@@ -259,12 +292,15 @@ struct DayStrip: View {
         let cal = Calendar.current
         let today = cal.startOfDay(for: .now)
         let days = (0..<14).reversed().compactMap { cal.date(byAdding: .day, value: -$0, to: today) }
+        let first = days.first ?? today
+        let kcalByDay = Dictionary(grouping: logs.filter { $0.date >= first }) { cal.startOfDay(for: $0.date) }
+            .mapValues { $0.map(\.nutrients.kcal).reduce(0, +) }
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(days, id: \.self) { d in
                         let on = cal.isSameDay(d, day)
-                        let kcal = logs.filter { cal.isSameDay($0.date, d) }.map(\.nutrients.kcal).reduce(0, +)
+                        let kcal = kcalByDay[d] ?? 0
                         Button {
                             withAnimation(.spring(duration: 0.35)) { day = d }
                         } label: {

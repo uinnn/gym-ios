@@ -425,10 +425,23 @@ enum NutrientID: String, CaseIterable, Identifiable {
 extension FoodDatabase {
     /// Alimentos mais ricos (por 100 g) em um nutriente.
     func topSources(_ id: NutrientID, limit: Int = 10) -> [(FoodItem, Double)] {
-        foods.filter { $0.category != "Suplementos" }
+        let key = "\(id.rawValue)-\(limit)"
+        if let hit = TopSourcesCache.shared.get(key) { return hit }
+        let list = foods.lazy.filter { $0.category != "Suplementos" }
             .map { ($0, id.value($0.per100, $0.micros ?? .zero)) }
             .filter { $0.1 > 0 }
             .sorted { $0.1 > $1.1 }
             .prefix(limit).map { $0 }
+        TopSourcesCache.shared.set(key, Array(list))
+        return Array(list)
     }
+}
+
+/// O banco de alimentos não muda, então o ranking de cada nutriente é calculado uma vez só.
+final class TopSourcesCache {
+    static let shared = TopSourcesCache()
+    private var store: [String: [(FoodItem, Double)]] = [:]
+    private let lock = NSLock()
+    func get(_ k: String) -> [(FoodItem, Double)]? { lock.lock(); defer { lock.unlock() }; return store[k] }
+    func set(_ k: String, _ v: [(FoodItem, Double)]) { lock.lock(); store[k] = v; lock.unlock() }
 }

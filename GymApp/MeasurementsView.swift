@@ -13,7 +13,7 @@ struct MeasurementsView: View {
     private var latest: MeasurementEntry? { all.merged() }
 
     var body: some View {
-        NavigationStack {
+        Group {
             ZStack {
                 AnimatedBackground()
                 ScrollView {

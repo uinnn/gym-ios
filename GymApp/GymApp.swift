@@ -10,7 +10,8 @@ struct GymApp: App {
             RootView()
                 .environment(scanner)
         }
-        .modelContainer(for: [UserProfile.self, WeightEntry.self, MeasurementEntry.self])
+        .modelContainer(for: [UserProfile.self, WeightEntry.self, MeasurementEntry.self, FoodLog.self,
+                               SavedFood.self, WaterLog.self, FastingSession.self])
     }
 }
 
@@ -36,12 +37,10 @@ struct RootView: View {
         TabView(selection: $tab) {
             DashboardView()
                 .tabItem { Label("Início", systemImage: "house.fill") }.tag(0)
-            MetricsView()
-                .tabItem { Label("Métricas", systemImage: "chart.pie.fill") }.tag(1)
-            HistoryView()
-                .tabItem { Label("Histórico", systemImage: "chart.xyaxis.line") }.tag(2)
-            MeasurementsView()
-                .tabItem { Label("Medidas", systemImage: "ruler.fill") }.tag(3)
+            BodyView()
+                .tabItem { Label("Corpo", systemImage: "figure.stand") }.tag(1)
+            NutritionView()
+                .tabItem { Label("Alimentação", systemImage: "fork.knife") }.tag(2)
             ProfileView()
                 .tabItem { Label("Perfil", systemImage: "person.crop.circle") }.tag(4)
         }
@@ -121,6 +120,37 @@ struct RootView: View {
         Task {
             try? await Task.sleep(for: .seconds(suspicious ? 10 : 4))
             if toast == t { withAnimation(.easeOut) { toast = nil } }
+        }
+    }
+}
+
+enum BodySection: String, CaseIterable, Identifiable {
+    case metrics = "Métricas", measures = "Medidas", history = "Histórico"
+    var id: String { rawValue }
+}
+
+/// Aba Corpo: métricas, medidas e histórico de peso.
+struct BodyView: View {
+    @State private var section: BodySection = .metrics
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch section {
+                case .metrics: MetricsView()
+                case .measures: MeasurementsView()
+                case .history: HistoryView()
+                }
+            }
+            .safeAreaInset(edge: .top) {
+                Picker("Seção", selection: $section.animation(.spring(duration: 0.35))) {
+                    ForEach(BodySection.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 6)
+                .background(.bar)
+            }
         }
     }
 }

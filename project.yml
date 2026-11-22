@@ -19,6 +19,7 @@ targets:
         CFBundleDisplayName: Gym
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSCameraUsageDescription: "A câmera lê o código de barras dos alimentos."
         NSBluetoothAlwaysUsageDescription: "O app usa o Bluetooth para ler o peso e a bioimpedância da sua balança."
     settings:
       base:

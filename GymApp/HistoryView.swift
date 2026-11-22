@@ -39,7 +39,7 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        Group {
             ZStack {
                 AnimatedBackground()
                 ScrollView {

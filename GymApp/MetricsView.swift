@@ -45,7 +45,7 @@ struct MetricsView: View {
     @Namespace private var ns
 
     var body: some View {
-        NavigationStack {
+        Group {
             ZStack {
                 AnimatedBackground()
                 if let ctx = AnalysisContext(profile: profiles.first, entries: entries, measurements: measurements) {

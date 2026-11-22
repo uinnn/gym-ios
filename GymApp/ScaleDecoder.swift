@@ -2,6 +2,29 @@ import Foundation
 
 struct WeightReading {
     let kg: Double
+    var isStable = false
+    var rawImpedance: Int?   // bytes 4–5; significado ainda a confirmar
+}
+
+/// Formato da balança OKOK/Chipsea, descoberto pelos logs (15 bytes de anúncio):
+///
+///     C0 | cont | peso BE ÷100 | ?? ?? (BE) | 0A 01 | status | MAC (6 bytes)
+///     0    1      2–3            4–5          6–7     8        9–14
+///
+/// - `cont` só incrementa a cada anúncio.
+/// - `status` 0x24 = medindo, 0x25 = peso estável (bit 0).
+/// - bytes 4–5 vieram sempre 0x1770 (6000); possivelmente a impedância (600,0 Ω) ou um valor fixo.
+enum OKOKFormat {
+    static func decode(_ data: Data) -> WeightReading? {
+        let b = [UInt8](data)
+        guard b.count == 15, b[0] == 0xC0, b[6] == 0x0A else { return nil }
+        let raw = Int(b[2]) << 8 | Int(b[3])
+        guard raw > 0 else { return nil }
+        let imp = Int(b[4]) << 8 | Int(b[5])
+        return WeightReading(kg: Double(raw) / 100,
+                             isStable: b[8] & 0x01 == 1,
+                             rawImpedance: imp > 0 ? imp : nil)
+    }
 }
 
 /// Onde o peso está dentro do pacote: posição do byte, ordem dos bytes e divisor.
@@ -47,6 +70,7 @@ enum ScaleDecoder {
     }
 
     static func decode(_ data: Data, source: String) -> WeightReading? {
+        if source == "adv", let r = OKOKFormat.decode(data) { return r }
         guard let f = savedFormat, f.source == source, let kg = f.read(data) else { return nil }
         return WeightReading(kg: kg)
     }

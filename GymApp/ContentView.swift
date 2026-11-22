@@ -84,6 +84,14 @@ struct DeviceDetailView: View {
                         Text(w.kg, format: .number.precision(.fractionLength(1)))
                             .font(.system(size: 64, weight: .bold, design: .rounded))
                         Text("kg").foregroundStyle(.secondary)
+                        Label(w.isStable ? "Peso estável" : "Medindo…",
+                              systemImage: w.isStable ? "checkmark.seal.fill" : "waveform")
+                            .foregroundStyle(w.isStable ? .green : .orange)
+                            .padding(.top, 4)
+                        if let imp = w.rawImpedance {
+                            Text("Valor bruto bytes 4–5: \(imp)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     } else {
                         Text("Formato ainda não definido")
                             .font(.headline)

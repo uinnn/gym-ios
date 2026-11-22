@@ -101,8 +101,10 @@ extension ScaleScanner: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
+        let mfgData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
+        let looksLikeScale = mfgData.map { $0.count == 15 && $0.first == 0xC0 } ?? false
         let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String)
-            ?? peripheral.name ?? "Sem nome"
+            ?? peripheral.name ?? (looksLikeScale ? "Balança OKOK" : "Sem nome")
         let device = devices[peripheral.identifier]
             ?? SeenDevice(peripheral: peripheral, name: name, rssi: RSSI.intValue)
         device.name = name

@@ -104,14 +104,53 @@ enum ProgramGenerator {
         var items: [RoutineItem]
     }
 
+    struct Options {
+        var focus: [Muscle: Int] = [:]
+        var style: ExerciseStyle = .balanced
+        var equip: EquipmentPreference = .mixed
+        var volumeDelta = 0
+        var maxExercises = 8
+
+        static func fromPrefs() -> Options {
+            let p = WorkoutPrefs.shared
+            var f: [Muscle: Int] = [:]
+            for (k, v) in p.focus { if let m = Muscle(rawValue: k), v > 0 { f[m] = v } }
+            if !p.advanced { return Options(focus: f.mapValues { _ in 2 }) }
+            return Options(focus: f, style: ExerciseStyle(rawValue: p.styleRaw) ?? .balanced,
+                           equip: EquipmentPreference(rawValue: p.equipRaw) ?? .mixed,
+                           volumeDelta: p.volumeDelta, maxExercises: p.maxExercises)
+        }
+    }
+
     /// Gera o programa. `vary` troca parte dos exercícios por equivalentes (favoritos têm prioridade).
     static func make(goal: TrainingGoal, level: TrainingLevel, weekdays: [Int], place: TrainingPlace,
-                     vary: Bool) -> [Planned] {
+                     vary: Bool, options o: Options = Options()) -> [Planned] {
         let (sets, rmin, rmax, rest) = goal.scheme
         let order = Weekday.mondayFirst.filter { weekdays.contains($0) }
         let fav = WorkoutPrefs.shared.favorites
         let home = place == .home
-        return split(days: max(order.count, 2)).enumerated().compactMap { i, key in
+        let ranked = o.style != .balanced || o.equip != .mixed
+
+        func item(_ id: String, compound: Bool) -> RoutineItem {
+            let extra = (level == .advanced && compound ? 1 : 0) + o.volumeDelta
+            let isTimed = ExerciseCatalog.byID[id]?.kind == .timed
+            return RoutineItem(exerciseID: id, sets: max(1, sets + extra),
+                               repsMin: isTimed ? 1 : (goal == .strength && !compound ? 8 : rmin),
+                               repsMax: isTimed ? 1 : (goal == .strength && !compound ? 12 : rmax),
+                               restSeconds: compound ? rest : max(60, rest - 30))
+        }
+
+        func best(for muscle: Muscle, excluding used: Set<String>) -> Exercise? {
+            let pool = ExerciseCatalog.all.filter {
+                $0.primary.first == muscle && $0.kind != .cardio && !used.contains($0.id)
+                    && ExerciseAlternatives.allowed($0.equipment, home: home)
+            }
+            let style = o.style == .balanced ? ExerciseStyle.best : o.style
+            let top = pool.sorted { $0.score(style: style, equip: o.equip) > $1.score(style: style, equip: o.equip) }
+            return vary ? top.prefix(3).randomElement() : top.first
+        }
+
+        var plans: [Planned] = split(days: max(order.count, 2)).enumerated().compactMap { i, key in
             guard let d = Self.days[key] else { return nil }
             var ids = d.2
             if home { ids = ids.compactMap { id in homeSwap.keys.contains(id) ? homeSwap[id]! : id } }
@@ -119,7 +158,10 @@ enum ProgramGenerator {
             ids = ids.compactMap { id -> String? in
                 var pick = id
                 let opts = ExerciseAlternatives.options(for: id, home: home).filter { !used.contains($0.id) }
-                if let f = opts.first(where: { fav.contains($0.id) }), !fav.contains(id), Bool.random() || !vary {
+                if ranked, let x = ExerciseCatalog.byID[id] {
+                    let cands = ([x] + opts).sorted { $0.score(style: o.style, equip: o.equip) > $1.score(style: o.style, equip: o.equip) }
+                    pick = (vary ? cands.prefix(2).randomElement() : cands.first)?.id ?? id
+                } else if let f = opts.first(where: { fav.contains($0.id) }), !fav.contains(id), Bool.random() || !vary {
                     pick = f.id
                 } else if vary, Int.random(in: 0..<100) < 45,
                           let r = ExerciseAlternatives.random(for: id, home: home, excluding: used) {
@@ -129,23 +171,47 @@ enum ProgramGenerator {
                 return pick
             }
             if level == .beginner { ids = Array(ids.prefix(5)) }
-            var items: [RoutineItem] = ids.enumerated().map { j, id in
-                let compound = j < 2
-                let extra = level == .advanced && compound ? 1 : 0
-                let isTimed = ExerciseCatalog.byID[id]?.kind == .timed
-                return RoutineItem(exerciseID: id, sets: sets + extra,
-                                   repsMin: isTimed ? 1 : (goal == .strength && !compound ? 8 : rmin),
-                                   repsMax: isTimed ? 1 : (goal == .strength && !compound ? 12 : rmax),
-                                   restSeconds: compound ? rest : max(60, rest - 30))
+            var items = ids.enumerated().map { j, id in item(id, compound: j < 2) }
+
+            // Foco muscular
+            for (m, w) in o.focus where w > 0 {
+                let trains = items.contains { $0.exercise?.primary.contains(m) == true }
+                guard trains else { continue }
+                for k in items.indices where items[k].exercise?.primary.contains(m) == true {
+                    items[k].sets = min(items[k].sets + (w >= 3 ? 2 : 1), 6)
+                }
+                if w >= 2, let x = best(for: m, excluding: Set(items.map(\.exerciseID))) {
+                    items.append(item(x.id, compound: false))
+                }
             }
+            // ordena: compostos primeiro, focos logo depois
+            items.sort { a, b in
+                let ca = a.exercise?.isCompound == true, cb = b.exercise?.isCompound == true
+                if ca != cb { return ca }
+                let fa = a.exercise?.primary.contains { (o.focus[$0] ?? 0) > 0 } == true
+                let fb = b.exercise?.primary.contains { (o.focus[$0] ?? 0) > 0 } == true
+                return fa && !fb
+            }
+            if items.count > o.maxExercises { items = Array(items.prefix(o.maxExercises)) }
             if goal == .fatLoss {
                 items.append(RoutineItem(exerciseID: home ? "hiit" : "walk-incline", sets: 1, repsMin: 20, repsMax: 20, restSeconds: 0))
             }
             return Planned(name: d.0, icon: d.1, weekday: i < order.count ? order[i] : 0, items: items)
         }
+
+        // Músculos em foco que nenhum dia treina: entram no dia com menos exercícios.
+        for (m, w) in o.focus where w > 0 {
+            let covered = plans.contains { p in p.items.contains { $0.exercise?.primary.contains(m) == true } }
+            guard !covered, let k = plans.indices.min(by: { plans[$0].items.count < plans[$1].items.count }) else { continue }
+            if let x = best(for: m, excluding: Set(plans[k].items.map(\.exerciseID))) {
+                var it = item(x.id, compound: false)
+                if w >= 3 { it.sets += 1 }
+                plans[k].items.insert(it, at: max(0, plans[k].items.count - (goal == .fatLoss ? 1 : 0)))
+            }
+        }
+        return plans
     }
 }
-
 // MARK: - Gerador (tela)
 
 struct ProgramGeneratorSheet: View {
@@ -208,6 +274,16 @@ struct ProgramGeneratorSheet: View {
                     }
                 }
                 Section {
+                    Picker("Modo", selection: $prefs.advanced.animation(.spring)) {
+                        Text("Básico").tag(false); Text("Avançado").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    if prefs.advanced { advancedFocus } else { basicFocus }
+                } header: { Text("Foco muscular") } footer: {
+                    Text(prefs.advanced
+                         ? "Prioridade: +1 série nos exercícios do músculo. Alta: +1 série e +1 exercício. Máxima: +2 séries e +1 exercício. Músculos em foco que nenhum dia treina entram no dia mais leve."
+                         : "Os músculos selecionados ganham séries extras e um exercício a mais nos dias em que são treinados.")
+                }                Section {
                     ForEach(preview) { r in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
@@ -223,6 +299,7 @@ struct ProgramGeneratorSheet: View {
                     Button {
                         withAnimation(.spring) { rolls += 1 }
                     } label: { Label("Gerar outra variação", systemImage: "dice.fill") }
+                    WeeklyPreviewStats(plans: preview)
                 } header: { Text("Prévia") } footer: {
                     let s = goal.scheme
                     let txt: String = "\(s.0) séries de \(s.1)–\(s.2) repetições, descanso de \(s.3) s. Progrida a carga quando completar o topo da faixa de repetições em todas as séries."
@@ -247,12 +324,63 @@ struct ProgramGeneratorSheet: View {
             .onChange(of: prefs.days) { _, _ in regenerate() }
             .onChange(of: vary) { _, _ in regenerate() }
             .onChange(of: rolls) { _, _ in regenerate() }
+            .onChange(of: prefs.focus) { _, _ in regenerate() }
+            .onChange(of: prefs.advanced) { _, _ in regenerate() }
+            .onChange(of: prefs.styleRaw) { _, _ in regenerate() }
+            .onChange(of: prefs.equipRaw) { _, _ in regenerate() }
+            .onChange(of: prefs.volumeDelta) { _, _ in regenerate() }
+            .onChange(of: prefs.maxExercises) { _, _ in regenerate() }
         }
+    }
+
+    private var basicFocus: some View {
+        FlowLayout(spacing: 8) {
+            ForEach(Muscle.trained) { m in
+                let on = prefs.weight(m) > 0
+                Button {
+                    withAnimation(.spring(duration: 0.3)) { prefs.focus[m.rawValue] = on ? 0 : 2 }
+                } label: {
+                    Label(m.label, systemImage: on ? "checkmark" : m.icon)
+                        .font(.caption.bold()).padding(.horizontal, 12).padding(.vertical, 8)
+                        .foregroundStyle(on ? .white : .primary)
+                        .background(on ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(.quaternary), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder private var advancedFocus: some View {
+        ForEach(Muscle.trained) { m in
+            HStack {
+                Label(m.label, systemImage: m.icon).font(.subheadline)
+                Spacer()
+                Picker(m.label, selection: Binding(get: { prefs.weight(m) }, set: { prefs.focus[m.rawValue] = $0 })) {
+                    Text("Normal").tag(0); Text("Prioridade").tag(1); Text("Alta").tag(2); Text("Máxima").tag(3)
+                }
+                .labelsHidden()
+                .tint(prefs.weight(m) > 0 ? Theme.accent : .secondary)
+            }
+        }
+        Picker("Estilo dos exercícios", selection: $prefs.styleRaw) {
+            ForEach(ExerciseStyle.allCases) { Text($0.label).tag($0.rawValue) }
+        }
+        Text(ExerciseStyle(rawValue: prefs.styleRaw)?.detail ?? "").font(.caption).foregroundStyle(.secondary)
+        Picker("Equipamento preferido", selection: $prefs.equipRaw) {
+            ForEach(EquipmentPreference.allCases) { Text($0.label).tag($0.rawValue) }
+        }
+        Picker("Volume", selection: $prefs.volumeDelta) {
+            Text("Menos (−1 série)").tag(-1); Text("Padrão").tag(0); Text("Mais (+1 série)").tag(1)
+        }
+        Stepper("Até \(prefs.maxExercises) exercícios por treino", value: $prefs.maxExercises, in: 4...12)
+        Button("Limpar foco") { withAnimation { prefs.focus = [:] } }.font(.caption)
     }
 
     private func regenerate() {
         withAnimation(.spring) {
-            preview = ProgramGenerator.make(goal: goal, level: level, weekdays: prefs.days, place: place, vary: vary)
+            preview = ProgramGenerator.make(goal: goal, level: level, weekdays: prefs.days, place: place, vary: vary,
+                                            options: .fromPrefs())
         }
     }
 
@@ -395,5 +523,25 @@ struct RoutineEditorView: View {
             }
             Stepper("Descanso: \(it.restSeconds) s", value: item.restSeconds, in: 0...300, step: 15).font(.caption)
         }
+    }
+}
+
+/// Resumo da prévia: séries por músculo da semana gerada.
+struct WeeklyPreviewStats: View {
+    let plans: [ProgramGenerator.Planned]
+
+    var body: some View {
+        let b = TrainingBreakdown(plans.flatMap(\.items))
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Séries por semana").font(.caption.bold()).foregroundStyle(.secondary)
+            ForEach(b.muscleSets.prefix(10), id: \.0) { m, v in
+                HStack(spacing: 8) {
+                    Text(m.label).font(.caption).frame(width: 84, alignment: .leading)
+                    ProgressBar(progress: v / 20, tint: Muscle.weeklySetsRange.contains(v) ? Theme.good : Theme.warm, height: 6)
+                    Text(v.fmt(0)).font(.caption.monospacedDigit()).frame(width: 26, alignment: .trailing)
+                }
+            }
+        }
+        .padding(.vertical, 4)
     }
 }

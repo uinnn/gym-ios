@@ -254,6 +254,15 @@ final class WorkoutPrefs {
     var levelRaw: String { didSet { d.set(levelRaw, forKey: "genLevel") } }
     var placeRaw: String { didSet { d.set(placeRaw, forKey: "genPlace") } }
     var days: [Int] { didSet { d.set(days, forKey: "genDays") } }
+    /// Foco por músculo: 0 normal, 1 prioridade, 2 alta, 3 máxima.
+    var focus: [String: Int] { didSet { d.set(focus, forKey: "genFocus") } }
+    var advanced: Bool { didSet { d.set(advanced, forKey: "genAdvanced") } }
+    var styleRaw: String { didSet { d.set(styleRaw, forKey: "genStyle") } }
+    var equipRaw: String { didSet { d.set(equipRaw, forKey: "genEquip") } }
+    var volumeDelta: Int { didSet { d.set(volumeDelta, forKey: "genVolume") } }
+    var maxExercises: Int { didSet { d.set(maxExercises, forKey: "genMaxEx") } }
+
+    func weight(_ m: Muscle) -> Int { focus[m.rawValue] ?? 0 }
 
     private init() {
         favorites = Set(d.stringArray(forKey: "favExercises") ?? [])
@@ -262,10 +271,80 @@ final class WorkoutPrefs {
         levelRaw = d.string(forKey: "genLevel") ?? "beginner"
         placeRaw = d.string(forKey: "genPlace") ?? "gym"
         days = (d.array(forKey: "genDays") as? [Int]) ?? [2, 4, 6]
+        focus = (d.dictionary(forKey: "genFocus") as? [String: Int]) ?? [:]
+        advanced = d.bool(forKey: "genAdvanced")
+        styleRaw = d.string(forKey: "genStyle") ?? "balanced"
+        equipRaw = d.string(forKey: "genEquip") ?? "mixed"
+        volumeDelta = d.integer(forKey: "genVolume")
+        maxExercises = d.object(forKey: "genMaxEx") as? Int ?? 8
     }
 
     func toggle(_ id: String) {
         if favorites.contains(id) { favorites.remove(id) } else { favorites.insert(id) }
+    }
+}
+
+enum ExerciseStyle: String, CaseIterable, Identifiable {
+    case balanced, compound, isolation, best
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .balanced: "Equilibrado"
+        case .compound: "Mais compostos"
+        case .isolation: "Mais isolados"
+        case .best: "Os melhores"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .balanced: "Mistura de multiarticulares e isoladores, como um programa clássico."
+        case .compound: "Prioriza exercícios que trabalham vários músculos (mais eficiência e força)."
+        case .isolation: "Prioriza exercícios focados em um músculo (ótimo para detalhes e articulações sensíveis)."
+        case .best: "Os exercícios com maior evidência de estímulo para cada músculo."
+        }
+    }
+}
+
+enum EquipmentPreference: String, CaseIterable, Identifiable {
+    case mixed, free, machines
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .mixed: "Misto"
+        case .free: "Pesos livres"
+        case .machines: "Máquinas e cabos"
+        }
+    }
+}
+
+extension Exercise {
+    var isCompound: Bool { primary.count >= 2 || allMuscles.count >= 3 }
+    var isIsolation: Bool { primary.count == 1 && secondary.count <= 1 }
+    var isFreeWeight: Bool { [.barbell, .dumbbell, .kettlebell, .bodyweight].contains(equipment) }
+
+    /// Exercícios com melhor relação estímulo/fadiga segundo a literatura e a prática.
+    static let staples: Set<String> = [
+        "bench", "incline-db", "chest-press", "cable-cross", "squat", "hack-squat", "leg-press", "bulgarian", "deadlift",
+        "rdl", "hip-thrust", "leg-curl", "seated-leg-curl", "leg-extension", "pullup", "lat-pulldown", "barbell-row",
+        "seated-row", "ohp", "db-press", "lateral-raise", "cable-lateral", "face-pull", "triceps-rope", "overhead-ext",
+        "incline-curl", "preacher-curl", "standing-calf", "cable-crunch", "hanging-knee",
+    ]
+
+    func score(style: ExerciseStyle, equip: EquipmentPreference) -> Int {
+        var s = 0
+        switch style {
+        case .balanced: s += Exercise.staples.contains(id) ? 1 : 0
+        case .compound: s += isCompound ? 3 : 0
+        case .isolation: s += isIsolation ? 3 : 0
+        case .best: s += Exercise.staples.contains(id) ? 3 : 0
+        }
+        switch equip {
+        case .mixed: break
+        case .free: s += isFreeWeight ? 2 : 0
+        case .machines: s += (equipment == .machine || equipment == .cable) ? 2 : 0
+        }
+        if WorkoutPrefs.shared.favorites.contains(id) { s += 2 }
+        return s
     }
 }
 

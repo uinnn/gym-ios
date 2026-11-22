@@ -24,6 +24,7 @@ struct RoutineDetailView: View {
                         header.appear()
                         statsGrid(same).appear(0.05)
                         musclesCard.appear(0.1)
+                        TrainingBreakdownCard(items: routine.items).appear(0.11)
                         SectionHeader(title: "Exercícios", icon: "list.number")
                         ForEach(Array(routine.items.enumerated()), id: \.element.id) { i, item in
                             itemCard(i, item).appear(0.12 + Double(i) * 0.03)

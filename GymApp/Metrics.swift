@@ -352,7 +352,7 @@ extension MetricID {
             tip: "Perder 0,5–1% do peso por semana é a recomendação mais comum.")
         case .bodyScore: MetricInfo(
             what: "Nota geral de 0 a 100 da sua composição corporal.",
-            how: "Começa em 100 e desconta pontos por IMC fora do ideal, gordura acima da faixa, gordura visceral alta, pouco músculo e cintura/altura acima de 0,5.",
+            how: "Média ponderada de 5 notas de 0 a 100: gordura corporal (30%, nota máxima só na faixa ótima), massa muscular pelo FFMI normalizado (30%), IMC (15%), gordura visceral (15%) e cintura/altura ou idade metabólica (10%). Ter pouca gordura não basta: sem massa muscular a nota fica limitada.",
             tip: "Use como resumo rápido. Veja quais métricas estão fora da faixa para saber onde agir.")
         case .fmi: MetricInfo(
             what: "Fat Mass Index: \"IMC\" só da gordura.",
@@ -790,25 +790,47 @@ struct BodyAnalysis {
 
     subscript(_ id: MetricID) -> Metric? { metrics.first { $0.id == id } }
 
-    /// Nota 0–100.
-    var bodyScore: Double {
-        var s = 100.0
-        if bmi < 18.5 { s -= (18.5 - bmi) * 6 } else if bmi > 24.9 { s -= (bmi - 24.9) * 3.5 }
-        if bodyFat > fatRange.healthy { s -= (bodyFat - fatRange.healthy) * 2 }
-        if bodyFat < fatRange.low { s -= (fatRange.low - bodyFat) * 2 }
-        if visceral > 9 { s -= (visceral - 9) * 2 }
-        let smmP = smm / input.kg * 100, low = input.isMale ? 33.0 : 24.0
-        if smmP < low { s -= (low - smmP) * 1.5 }
-        if let w = input.waist, w / input.heightCm > 0.5 { s -= (w / input.heightCm - 0.5) * 60 }
-        return min(max(s, 10), 100).rounded()
+    /// Componentes da pontuação (0–100 cada) e seus pesos.
+    var scoreParts: [(name: String, score: Double, weight: Double)] {
+        let male = input.isMale
+        // Gordura: 100 na faixa ótima (mais estreita que a saudável), cai 7 pts por ponto % fora dela.
+        let optLo = male ? max(fatRange.low + 2, 10) : max(fatRange.low + 2, 20)
+        let optHi = male ? min(fatRange.healthy - 4, 16) : min(fatRange.healthy - 5, 26)
+        let fatDist = bodyFat < optLo ? optLo - bodyFat : max(0, bodyFat - optHi)
+        let fat = max(0, 100 - fatDist * 7)
+        // Músculo pelo FFMI normalizado: 15 (homens) / 13 (mulheres) = 0; 23 / 19 = 100.
+        let nffmi = lbm / (h * h) + 6.1 * (1.8 - h)
+        let (m0, m1) = male ? (15.0, 23.0) : (13.0, 19.0)
+        let muscle = min(max((nffmi - m0) / (m1 - m0), 0), 1) * 100
+        // IMC: 100 entre 20 e 24, −12 por ponto fora.
+        let bmiS = max(0, 100 - (bmi < 20 ? (20 - bmi) : max(0, bmi - 24)) * 12)
+        // Visceral: 100 até 5, −9 por nível acima.
+        let visc = max(0, 100 - max(0, visceral - 5) * 9)
+        var parts: [(String, Double, Double)] = [("Gordura corporal", fat, 0.30), ("Massa muscular (FFMI)", muscle, 0.30),
+                                                 ("IMC", bmiS, 0.15), ("Gordura visceral", visc, 0.15)]
+        if let w = input.waist {
+            let r = w / input.heightCm
+            parts.append(("Cintura / altura", max(0, 100 - max(0, r - 0.45) * 400), 0.10))
+        } else {
+            let age = max(0, 100 - max(0, metabolicAge - Double(input.age)) * 5)
+            parts.append(("Idade metabólica", age, 0.10))
+        }
+        return parts.map { (name: $0.0, score: $0.1, weight: $0.2) }
     }
 
-    /// Tipo de corpo pela combinação gordura × músculo (como as balanças de bioimpedância).
+    /// Nota 0–100: média ponderada de gordura, músculo, IMC, visceral e cintura/idade metabólica.
+    var bodyScore: Double {
+        let p = scoreParts
+        let total = p.map { $0.score * $0.weight }.reduce(0, +) / p.map(\.weight).reduce(0, +)
+        return min(max(total, 5), 100).rounded()
+    }
+
+    /// Tipo de corpo pela combinação gordura × músculo. O músculo usa o FFMI (massa magra
+    /// relativa à altura), que não fica "inflado" em pessoas leves como o % de músculo.
     var bodyType: (name: String, detail: String) {
         let fatLevel = bodyFat < fatRange.low ? 0 : (bodyFat < fatRange.healthy ? 1 : 2)
-        let smmP = smm / input.kg * 100
-        let muscleLevel = smmP < (input.isMale ? 33 : 24) ? 0 : (smmP < (input.isMale ? 39 : 30) ? 1 : 2)
-        let table = [
+        let ffmi = lbm / (h * h)
+        let muscleLevel = ffmi < (input.isMale ? 18 : 15) ? 0 : (ffmi < (input.isMale ? 21 : 17.5) ? 1 : 2)        let table = [
             ["Magro", "Magro com músculo", "Atlético magro"],
             ["Pouco músculo", "Equilibrado", "Musculoso"],
             ["Obesidade oculta", "Acima do peso", "Robusto / forte"],

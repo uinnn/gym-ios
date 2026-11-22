@@ -124,6 +124,8 @@ struct ExerciseDetailView: View {
         }
     }
 
+    @State private var exampleKg: Double?
+
     private var bodyKg: Double { weights.first?.kg ?? 70 }
     private var isFav: Bool { prefs.favorites.contains(exercise.id) }
 
@@ -137,6 +139,7 @@ struct ExerciseDetailView: View {
                     VStack(spacing: 16) {
                         header.appear()
                         howToCard.appear(0.05)
+                        loadCard(p).appear(0.07)
                         energyCard.appear(0.08)
                         if strength, !p.isEmpty {
                             recordsGrid(p).appear(0.1)
@@ -214,6 +217,44 @@ struct ExerciseDetailView: View {
                     Divider()
                     Text("Alternativas para o mesmo músculo").font(.caption.bold()).foregroundStyle(.secondary)
                     Text(alts.map(\.name).joined(separator: " · ")).font(.caption)
+                }
+            }
+        }
+    }
+
+    private func loadCard(_ p: [Point]) -> some View {
+        let lm = exercise.load
+        let usesBody = lm.bodyFraction > 0
+        let base = exampleKg ?? (p.map(\.topKg).max().flatMap { $0 > 0 ? $0 : nil } ?? (usesBody && exercise.equipment == .bodyweight ? 0 : 20))
+        let real = lm.real(kg: base, bodyKg: bodyKg)
+        return Card {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Carga real", systemImage: "scalemass.fill").font(.headline).foregroundStyle(Theme.accent)
+                Text(lm.note).font(.callout).fixedSize(horizontal: false, vertical: true)
+                Divider()
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(lm.perSide ? "Registrado (por halter)" : (exercise.equipment == .bodyweight ? "Peso extra" : "Registrado"))
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Text("\(base.fmt(1)) kg").font(.title3.bold().monospacedDigit()).contentTransition(.numericText())
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("Você move de fato").font(.caption2).foregroundStyle(.secondary)
+                        Text("≈ \(real.fmt(1)) kg").font(.title3.bold().monospacedDigit()).foregroundStyle(Theme.gradient)
+                            .contentTransition(.numericText())
+                    }
+                }
+                Slider(value: Binding(get: { base }, set: { exampleKg = ($0 / 2.5).rounded() * 2.5 }), in: 0...max(200, base * 1.5))
+                    .tint(Theme.accent)
+                let p1: String? = lm.factor != 1 ? "\(Int(lm.factor * 100))% da carga" : nil
+                let p2: String? = lm.perSide ? "× 2 halteres" : nil
+                let p3: String? = usesBody ? "+ \(Int(lm.bodyFraction * 100))% do seu corpo (\((bodyKg * lm.bodyFraction).fmt(1)) kg)" : nil
+                let parts: [String] = [p1, p2, p3].compactMap { $0 }
+                if !parts.isEmpty {
+                    Text("Cálculo: " + parts.joined(separator: " ")).font(.caption2).foregroundStyle(.secondary)
                 }
             }
         }

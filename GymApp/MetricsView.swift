@@ -102,7 +102,7 @@ struct MetricsView: View {
 
     private func scoreCard(_ a: BodyAnalysis) -> some View {
         let type = a.bodyType
-        return Card {
+        return Card { VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 18) {
                 ZStack {
                     ProgressRing(progress: a.bodyScore / 100, lineWidth: 12)
@@ -119,7 +119,18 @@ struct MetricsView: View {
                     Text("Gordura: \(a.fatMethod)").font(.caption2).foregroundStyle(Theme.accent)
                 }
             }
-        }
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(a.scoreParts, id: \.name) { p in
+                    HStack(spacing: 8) {
+                        Text(p.name).font(.caption).frame(width: 130, alignment: .leading)
+                        ProgressBar(progress: p.score / 100,
+                                    tint: p.score >= 85 ? Theme.good : (p.score >= 60 ? Theme.warm : Theme.danger), height: 6)
+                        Text(p.score.fmt(0)).font(.caption.monospacedDigit()).frame(width: 28, alignment: .trailing)
+                    }
+                }
+            }
+            .padding(.top, 10)
+        } }
     }
 
     private var categoryPicker: some View {

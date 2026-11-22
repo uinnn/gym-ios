@@ -113,7 +113,11 @@ struct DashboardView: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         if let p = profile {
-                            Text("Meta: \(p.goalWeightKg.fmt()) kg").font(.caption.bold()).foregroundStyle(Theme.accent)
+                            let now = scanner.live?.kg ?? latest?.kg ?? p.goalWeightKg
+                            let rem = p.goalWeightKg - now
+                            Text(abs(rem) < 0.3 ? "Meta: \(p.goalWeightKg.fmt()) kg · atingida! 🎉"
+                                 : "Meta: \(p.goalWeightKg.fmt()) kg · \(abs(rem).fmt(1)) kg \(rem > 0 ? "a ganhar" : "a perder")")
+                                .font(.caption.bold()).foregroundStyle(Theme.accent)
                         }
                     }
                     .foregroundStyle(.primary)
@@ -153,10 +157,11 @@ struct DashboardView: View {
         return good ? Theme.good : Theme.warm
     }
 
+    /// Quão perto da meta você está: 100% = no peso meta. Usa o peso ao vivo durante a pesagem.
     private var goalProgress: Double {
-        guard let p = profile, let start = entries.last?.kg, let now = latest?.kg else { return 0 }
-        return GoalProgress(start: start, current: now, target: p.goalWeightKg).fraction
-            ?? (abs(now - p.goalWeightKg) < 0.5 ? 1 : 0)
+        guard let p = profile, let now = scanner.live?.kg ?? latest?.kg, p.goalWeightKg > 0 else { return 0 }
+        let diff = abs(now - p.goalWeightKg)
+        return max(0, 1 - diff / p.goalWeightKg)
     }
 
     // MARK: Ações rápidas

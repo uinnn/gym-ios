@@ -262,6 +262,8 @@ struct WorkoutsView: View {
                 SectionHeader(title: "Sem dia definido", icon: "tray.fill")
                 ForEach(unassigned) { routineCard($0) }
             }
+            WeeklyProgramCard(routines: routines)
+            TrainingBreakdownCard(items: routines.filter { $0.weekday != 0 }.flatMap(\.items), title: "Distribuição da semana")
             HStack {
                 Button { showGenerator = true } label: { Label("Gerar novo programa", systemImage: "wand.and.stars") }
                 Spacer()

@@ -175,6 +175,11 @@ struct ActiveWorkoutView: View {
                         }
                     } label: { Image(systemName: "ellipsis.circle").font(.title3) }
                 }
+                if let x, !isCardio, let top = e.doneSets.map(\.kg).max(),
+                   x.load.factor != 1 || x.load.bodyFraction > 0 || x.load.perSide {
+                    Text("≈ \(x.load.real(kg: top, bodyKg: session.bodyKg).fmt(1)) kg reais movidos na série mais pesada")
+                        .font(.caption2).foregroundStyle(Theme.accent2)
+                }
                 if let best, !isCardio {
                     Text("Recorde: \(best.kg.fmt(1)) kg × \(best.reps) · 1RM estimado \(best.e1RM.fmt(1)) kg")
                         .font(.caption2).foregroundStyle(Theme.excellent)

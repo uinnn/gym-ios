@@ -18,7 +18,9 @@ enum ExerciseCatalog {
         Exercise(id: id, name: name, primary: [.cardio], secondary: [], equipment: eq, kind: .cardio, met: met, howTo: how, tip: tip)
     }
 
-    static let all: [Exercise] = [
+    static let all: [Exercise] = base + ExerciseLibrary.extra
+
+    private static let base: [Exercise] = [
         // PEITO
         s("bench", "Supino reto com barra", [.chest], [.triceps, .shoulders], .barbell, met: 6,
           "Deitado no banco, pés no chão, escápulas retraídas. Desça a barra até a linha do peito e empurre até estender os braços.",

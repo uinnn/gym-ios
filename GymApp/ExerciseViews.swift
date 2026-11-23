@@ -199,11 +199,41 @@ struct ExerciseDetailView: View {
     private var howToCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
-                Label("Como fazer", systemImage: "list.number").font(.subheadline.bold()).foregroundStyle(Theme.accent)
-                Text(exercise.howTo).font(.callout)
+                HStack {
+                    Label("Como fazer", systemImage: "list.number").font(.subheadline.bold()).foregroundStyle(Theme.accent)
+                    Spacer()
+                    StatusChip(text: exercise.level.rawValue, color: exercise.level == .advanced ? .orange : Theme.accent2)
+                }
+                let steps = exercise.steps
+                ForEach(steps.indices, id: \.self) { i in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("\(i + 1)").font(.caption.bold().monospacedDigit()).foregroundStyle(.white)
+                            .frame(width: 20, height: 20).background(Theme.accent, in: Circle())
+                        Text(steps[i] + ".").font(.callout).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if !exercise.setup.isEmpty {
+                    Divider()
+                    Label("Ajuste do aparelho", systemImage: "slider.horizontal.3").font(.subheadline.bold()).foregroundStyle(Theme.accent)
+                    Text(exercise.setup).font(.callout)
+                }
                 Divider()
                 Label("Dica", systemImage: "lightbulb.fill").font(.subheadline.bold()).foregroundStyle(Theme.accent)
                 Text(exercise.tip).font(.callout)
+                let mistakes = exercise.allMistakes
+                if !mistakes.isEmpty {
+                    Divider()
+                    Label("Erros comuns", systemImage: "exclamationmark.triangle.fill").font(.subheadline.bold()).foregroundStyle(.orange)
+                    ForEach(mistakes, id: \.self) { m in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.orange)
+                            Text(m).fixedSize(horizontal: false, vertical: true)
+                        }.font(.callout)
+                    }
+                }
+                Divider()
+                Label("Respiração", systemImage: "wind").font(.subheadline.bold()).foregroundStyle(Theme.accent)
+                Text(exercise.breathing).font(.callout)
                 if let url = videoURL {
                     Link(destination: url) {
                         Label("Ver vídeos de execução", systemImage: "play.rectangle.fill")

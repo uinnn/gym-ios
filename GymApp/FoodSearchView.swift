@@ -254,6 +254,7 @@ struct FoodAmountSheet: View {
 // MARK: - Alimento próprio
 
 struct CustomFoodSheet: View {
+    var barcode: String? = nil
     var onCreated: (FoodItem) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
@@ -265,6 +266,9 @@ struct CustomFoodSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                NutritionLabelScanSection { r in
+                    withAnimation { n = r.per100; if let s = r.serving { serving = s } }
+                }
                 Section("Alimento") {
                     TextField("Nome", text: $name)
                     TextField("Marca (opcional)", text: $brand)
@@ -287,7 +291,7 @@ struct CustomFoodSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Salvar") {
-                        let food = FoodItem(id: "custom-\(UUID().uuidString)", name: name, category: "Meus alimentos",
+                        let food = FoodItem(id: barcode.map { "custom-bc-\($0)" } ?? "custom-\(UUID().uuidString)", name: name, category: "Meus alimentos",
                                             brand: brand.isEmpty ? nil : brand, per100: n, servingGrams: serving)
                         context.insert(SavedFood(food, custom: true))
                         dismiss()
@@ -313,9 +317,12 @@ struct CustomFoodSheet: View {
 
 struct BarcodeScannerSheet: View {
     var onResult: (FoodItem?) -> Void
+    @Environment(\.modelContext) private var context
     @State private var status = "Aponte a câmera para o código de barras"
     @State private var busy = false
     @State private var manual = ""
+    @State private var missing: String?
+    @State private var showCreate = false
 
     var body: some View {
         NavigationStack {
@@ -338,23 +345,43 @@ struct BarcodeScannerSheet: View {
                         .textFieldStyle(.roundedBorder)
                     Button("Buscar") { lookup(manual) }.buttonStyle(.borderedProminent).disabled(manual.count < 8)
                 }
+                if missing != nil {
+                    Button { showCreate = true } label: {
+                        Label("Fotografar a tabela e cadastrar", systemImage: "tablecells.badge.ellipsis")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
                 Spacer()
             }
             .padding()
             .navigationTitle("Código de barras")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Fechar") { onResult(nil) } }
+            .sheet(isPresented: $showCreate) {
+                CustomFoodSheet(barcode: missing) { onResult($0) }
+            }
         }
     }
 
     private func lookup(_ code: String) {
         guard !busy else { return }
+        // Primeiro os alimentos que o usuário já cadastrou com este código.
+        let localID = "custom-bc-\(code)"
+        if let saved = try? context.fetch(FetchDescriptor<SavedFood>(predicate: #Predicate { $0.foodID == localID })).first?.food {
+            onResult(saved)
+            return
+        }
         busy = true
+        missing = nil
         status = "Buscando \(code)…"
         Task {
             let food = try? await OpenFoodFacts.product(barcode: code)
             busy = false
-            if let food { onResult(food) } else { status = "Produto \(code) não encontrado. Crie-o manualmente." }
+            if let food { onResult(food) } else {
+                missing = code
+                status = "Produto \(code) não encontrado. Cadastre lendo a tabela do rótulo."
+            }
         }
     }
 }

@@ -9,3 +9,4 @@ GymApp/Info.plist
 .env.*
 !.env.example
 GymApp/Secrets.swift
+dist/

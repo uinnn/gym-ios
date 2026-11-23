@@ -76,6 +76,8 @@ struct Exercise: Identifiable, Hashable {
     let met: Double
     let howTo: String
     let tip: String
+    var setup: String = ""
+    var mistakes: [String] = []
 
     var allMuscles: [Muscle] { primary + secondary }
 }

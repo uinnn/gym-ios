@@ -3,7 +3,7 @@ import SwiftData
 
 /// Operações comuns do diário.
 enum Diary {
-    static func log(_ food: FoodItem, grams: Double, meal: Meal, date: Date, in context: ModelContext) {
+    @MainActor static func log(_ food: FoodItem, grams: Double, meal: Meal, date: Date, in context: ModelContext) {
         let log = FoodLog(date: date, meal: meal, food: food, grams: grams)
         context.insert(log)
         PartyService.shared.post(.food, "comeu \(food.name) (\(Int(grams)) g · \(Int(log.nutrients.kcal)) kcal)", value: log.nutrients.kcal)

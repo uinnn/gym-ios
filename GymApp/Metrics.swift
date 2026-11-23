@@ -283,11 +283,11 @@ extension MetricID {
             tip: "Nível 1–9 é saudável. Responde muito bem a exercício aeróbico, treino de força, menos álcool e açúcar, e sono. Medir a cintura regularmente é o melhor jeito de acompanhar.")
         case .waterPercent: MetricInfo(
             what: "Percentual do peso que é água. Músculos têm ~75% de água; gordura, ~10%.",
-            how: "Água corporal total pela fórmula de Watson (1980), validada por diluição de isótopos.",
+            how: "Massa magra × 0,732: a hidratação da massa magra é praticamente constante em adultos (Wang et al., 1999). A fórmula de Watson (1980) aparece como comparação.",
             tip: "Valores baixos podem indicar desidratação ou muita gordura. Beba água ao longo do dia e mantenha massa muscular.")
         case .waterMass: MetricInfo(
             what: "Litros (≈ kg) de água no seu corpo.",
-            how: "Fórmula de Watson: usa peso, altura, idade e sexo.",
+            how: "Massa magra × 0,732 (Wang, 1999); compare com Watson (1980), que usa peso, altura, idade e sexo.",
             tip: "Varia bastante ao longo do dia: é um dos motivos do peso oscilar.")
         case .proteinPercent: MetricInfo(
             what: "Percentual do peso formado por proteínas (músculos, órgãos, enzimas).",
@@ -307,7 +307,7 @@ extension MetricID {
             tip: "Entre −10% e +10% é considerado normal. Acima de 20% indica obesidade.")
         case .smmPercent: MetricInfo(
             what: "Percentual do peso formado pelos músculos que você movimenta voluntariamente (braços, pernas, tronco).",
-            how: "Estimado a partir da massa magra (relação de Janssen et al., 2000), com ajuste de idade.",
+            how: "~53% (homens) ou ~48% (mulheres) da massa magra, segundo ressonância magnética de corpo inteiro (Janssen et al., 2000), com ajuste de idade após os 45.",
             tip: "É o músculo que você treina. Treino de força 2–4x por semana com progressão de carga é o principal estímulo.")
         case .smm: MetricInfo(
             what: "Quilos de músculo esquelético.",
@@ -534,7 +534,7 @@ struct BodyAnalysis {
     let h: Double, bmi: Double
     let bodyFat: Double, fatMethod: String
     let fatMass: Double, lbm: Double
-    let water: Double, bone: Double, muscle: Double, smm: Double, protein: Double
+    let water: Double, watson: Double, bone: Double, muscle: Double, smm: Double, protein: Double
     let visceral: Double
     let mifflin: Double, katch: Double, harris: Double, cunningham: Double
     let metabolicAge: Double, tdee: Double, target: Double
@@ -572,10 +572,15 @@ struct BodyAnalysis {
         // Água (Watson), osso, músculo, proteína
         let tbw = male ? 2.447 - 0.09516 * A + 0.1074 * H + 0.3362 * W
                        : -2.097 + 0.1069 * H + 0.2466 * W
-        water = min(tbw, lbm * 0.78)
+        // Hidratação da massa magra é constante em adultos: 73,2% (Wang et al., 1999).
+        // Usar a mesma gordura estimada mantém água, proteína e massa magra coerentes entre si.
+        water = lbm * 0.732
+        watson = tbw
         bone = lbm * 0.055
         muscle = lbm - bone
-        smm = lbm * (male ? 0.56 : 0.50) * (1 - max(0, A - 40) * 0.003)
+        // Músculo esquelético ≈ 53% (homens) / 48% (mulheres) da massa magra (Janssen et al., 2000, RM),
+        // com perda de ~0,3%/ano após os 45.
+        smm = lbm * (male ? 0.53 : 0.48) * (1 - max(0, A - 45) * 0.003)
         protein = max(0, lbm - water - bone)
 
         // Faixas de gordura por idade e sexo (Gallagher, 2000)
@@ -673,7 +678,7 @@ struct BodyAnalysis {
         add(Metric(id: .waterMass, value: water,
                    bands: bands((W * wl / 100, "Baixo", .low), (W * wh / 100, "Saudável", .good),
                                 (.infinity, "Ótimo", .excellent)),
-                   scale: (W * 0.3)...(W * 0.75)))
+                   scale: (W * 0.3)...(W * 0.75), comparisons: [("Watson (1980)", watson)]))
         add(Metric(id: .proteinPercent, value: protein / W * 100,
                    bands: bands((16, "Baixo", .low), (20, "Normal", .good), (.infinity, "Ótimo", .excellent)),
                    scale: 8...25))

@@ -29,6 +29,7 @@ struct RootView: View {
     @Query(sort: \WeightEntry.date, order: .reverse) private var entries: [WeightEntry]
     @State private var toast: Toast?
     @State private var report: WeightEntry?
+    @Environment(\.scenePhase) private var rootPhase
     @State private var tab = 0
     private var store: ThemeStore { ThemeStore.shared }
 
@@ -64,6 +65,16 @@ struct RootView: View {
             save(s)
         }
         .sheet(item: $report) { ReportView(entry: $0) }
+        .onChange(of: rootPhase, initial: true) { _, p in
+            if p == .active {
+                AchievementEngine.check(context)
+                Task { await HealthSync.shared.refresh() }
+            } else if p == .background {
+                WidgetBridge.update(context)
+            }
+        }
+        .onChange(of: AppRouter.shared.tab) { _, t in tab = t }
+        .onChange(of: entries.count) { _, _ in AchievementEngine.check(context); WidgetBridge.update(context) }
         .fullScreenCover(isPresented: .constant(profiles.isEmpty)) {
             OnboardingView { }
         }
@@ -154,6 +165,7 @@ struct RootView: View {
                    ? "pesou \(s.kg.fmt(1)) kg" + (entries.isEmpty ? "" : " (\(delta.signed(1)) kg)")
                    : (entries.isEmpty ? "fez a primeira pesagem ⚖️" : "pesou-se: \(delta.signed(1)) kg"),
                    value: suspicious ? 0 : delta)
+        if !suspicious { HealthSync.shared.saveWeight(s.kg, date: s.date) }
 
         let owner = (suspicious || recent.isEmpty) ? ProfileRegistry.shared.likelyOwner(of: s.kg) : nil
         var msg = "\(s.kg.fmt(2)) kg salvo"

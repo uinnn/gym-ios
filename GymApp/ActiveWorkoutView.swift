@@ -99,11 +99,12 @@ struct ActiveWorkoutView: View {
             .sheet(item: $detail) { ExerciseDetailView(exercise: $0) }
             .sheet(item: $summary, onDismiss: { dismiss() }) { WorkoutSummaryView(session: $0) }
             .confirmationDialog("Descartar este treino?", isPresented: $confirmCancel, titleVisibility: .visible) {
-                Button("Descartar", role: .destructive) { context.delete(session); dismiss() }
+                Button("Descartar", role: .destructive) { LiveActivities.end(); context.delete(session); dismiss() }
             }
             .onAppear {
                 exercises = session.exercises
                 UIApplication.shared.isIdleTimerDisabled = true
+                LiveActivities.startWorkout(session.name, start: session.start, subtitle: liveSubtitle)
             }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
             .onChange(of: exercises) { _, _ in save() }
@@ -297,6 +298,7 @@ struct ActiveWorkoutView: View {
         guard seconds > 0 else { return }
         restTotal = seconds
         withAnimation(.spring) { restEnd = Date.now.addingTimeInterval(seconds) }
+        LiveActivities.update(subtitle: liveSubtitle, restEnd: restEnd)
         let c = UNUserNotificationCenter.current()
         c.removePendingNotificationRequests(withIdentifiers: ["rest"])
         c.requestAuthorization(options: [.alert, .sound]) { ok, _ in
@@ -313,6 +315,13 @@ struct ActiveWorkoutView: View {
     private func stopRest() {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["rest"])
         withAnimation(.spring) { restEnd = nil }
+        LiveActivities.update(subtitle: liveSubtitle, restEnd: nil)
+    }
+
+    private var liveSubtitle: String {
+        let done = exercises.map { $0.sets.filter(\.done).count }.reduce(0, +)
+        let total = exercises.map(\.sets.count).reduce(0, +)
+        return "\(done)/\(total) séries"
     }
 
     private var restBar: some View {
@@ -371,6 +380,9 @@ struct ActiveWorkoutView: View {
         }
         stopRest()
         summary = session
+        HealthSync.shared.saveStrength(session)
+        LiveActivities.end()
+        AchievementEngine.check(context)
     }
 }
 

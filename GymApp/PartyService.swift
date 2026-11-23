@@ -22,8 +22,18 @@ private extension Optional where Wrapped == String {
 // MARK: - Modelos
 
 enum PartyKind: String, Codable, CaseIterable, Identifiable {
-    case weight, food, workout, mood, sleep, practice
+    case weight, food, workout, mood, sleep, practice, water
+    // sociais (não contam como atividade)
+    case achievement, reaction, comment, chat, nudge, challenge, duel
     var id: String { rawValue }
+
+    /// Atividades de saúde (contam para dias ativos e ranking).
+    var isActivity: Bool { Self.activities.contains(self) }
+    static let activities: [PartyKind] = [.weight, .food, .workout, .mood, .sleep, .practice, .water]
+    /// O que o usuário pode escolher compartilhar.
+    static let shareable: [PartyKind] = activities + [.achievement]
+    /// Definições que precisam continuar guardadas mesmo quando o histórico é aparado.
+    var isPinned: Bool { self == .challenge || self == .duel }
 
     var title: String {
         switch self {
@@ -33,6 +43,14 @@ enum PartyKind: String, Codable, CaseIterable, Identifiable {
         case .mood: "Humor"
         case .sleep: "Sono"
         case .practice: "Práticas (respiração, meditação)"
+        case .water: "Meta de água"
+        case .achievement: "Conquistas"
+        case .reaction: "Reações"
+        case .comment: "Comentários"
+        case .chat: "Chat"
+        case .nudge: "Cutucadas"
+        case .challenge: "Desafios"
+        case .duel: "Duelos"
         }
     }
     var icon: String {
@@ -43,6 +61,14 @@ enum PartyKind: String, Codable, CaseIterable, Identifiable {
         case .mood: "face.smiling"
         case .sleep: "moon.zzz.fill"
         case .practice: "wind"
+        case .water: "drop.fill"
+        case .achievement: "medal.fill"
+        case .reaction: "hands.clap.fill"
+        case .comment: "bubble.left.fill"
+        case .chat: "bubble.left.and.bubble.right.fill"
+        case .nudge: "hand.point.right.fill"
+        case .challenge: "flag.checkered"
+        case .duel: "figure.fencing"
         }
     }
     /// Pontos de constância no ranking.
@@ -50,7 +76,8 @@ enum PartyKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .workout: 5
         case .weight, .mood, .practice: 2
-        case .food, .sleep: 1
+        case .food, .sleep, .water: 1
+        default: 0
         }
     }
 }
@@ -71,6 +98,8 @@ struct PartyEvent: Codable, Identifiable, Hashable {
     var text: String
     var value: Double
     var ts: Double
+    var target: String? = nil     // evento (reação/comentário) ou membro (cutucada/duelo)
+    var extra: String? = nil      // JSON de desafios e duelos
     var date: Date { Date(timeIntervalSince1970: ts) }
 }
 
@@ -232,7 +261,7 @@ final class PartyService {
     @ObservationIgnored private var pollTask: Task<Void, Never>?
 
     private init() {
-        shared = Set(PartyKind.allCases); showExactWeight = false; notify = true
+        shared = Set(PartyKind.shareable); showExactWeight = false; notify = true
         load(profile: ProfileRegistry.shared.activeID)
     }
 
@@ -245,7 +274,7 @@ final class PartyService {
         party = d.data(forKey: key("party")).flatMap { try? JSONDecoder().decode(Party.self, from: $0) }
         events = d.data(forKey: key("events")).flatMap { try? JSONDecoder().decode([PartyEvent].self, from: $0) } ?? []
         pending = d.data(forKey: key("pending")).flatMap { try? JSONDecoder().decode([PartyEvent].self, from: $0) } ?? []
-        if let raw = d.stringArray(forKey: key("share")) { shared = Set(raw.compactMap(PartyKind.init)) } else { shared = Set(PartyKind.allCases) }
+        if let raw = d.stringArray(forKey: key("share")) { shared = Set(raw.compactMap(PartyKind.init)) } else { shared = Set(PartyKind.shareable) }
         showExactWeight = d.bool(forKey: key("exactKg"))
         notify = d.object(forKey: key("notify")) as? Bool ?? true
         unread = d.integer(forKey: key("unread"))
@@ -341,10 +370,11 @@ final class PartyService {
     // MARK: Publicar
 
     /// Registra uma atividade deste perfil (se ele estiver numa party e compartilhar esse tipo).
-    func post(_ kind: PartyKind, _ text: String, value: Double = 0) {
-        guard party != nil, shared.contains(kind) else { return }
+    func post(_ kind: PartyKind, _ text: String, value: Double = 0, target: String? = nil, extra: String? = nil) {
+        guard party != nil, !PartyKind.shareable.contains(kind) || shared.contains(kind) else { return }
         let e = PartyEvent(id: UUID().uuidString, member: myMemberID, name: me.name, emoji: me.emoji,
-                           kind: kind, text: text, value: value, ts: Date.now.timeIntervalSince1970)
+                           kind: kind, text: text, value: value, ts: Date.now.timeIntervalSince1970,
+                           target: target, extra: extra)
         pending.append(e)
         insertSorted([e])
         persist()
@@ -360,6 +390,7 @@ final class PartyService {
                 _ = try await api.request("POST", "parties/\(code)/events", query: "documentId=\(e.id)", body: ["fields": [
                     "uid": FS.s(uid), "member": FS.s(e.member), "name": FS.s(e.name), "emoji": FS.s(e.emoji),
                     "kind": FS.s(e.kind.rawValue), "text": FS.s(e.text), "value": FS.n(e.value), "ts": FS.n(e.ts),
+                    "target": FS.s(e.target ?? ""), "extra": FS.s(e.extra ?? ""),
                 ]])
                 sent.insert(e.id)
             } catch PartyError.http(409, _) {
@@ -395,11 +426,13 @@ final class PartyService {
                 guard let kind = PartyKind(rawValue: FS.str(f, "kind")) else { return nil }
                 return PartyEvent(id: FS.docID(doc), member: FS.str(f, "member"), name: FS.str(f, "name"),
                                   emoji: FS.str(f, "emoji"), kind: kind, text: FS.str(f, "text"),
-                                  value: FS.num(f, "value"), ts: FS.num(f, "ts"))
+                                  value: FS.num(f, "value"), ts: FS.num(f, "ts"),
+                                  target: FS.str(f, "target").isEmpty ? nil : FS.str(f, "target"),
+                                  extra: FS.str(f, "extra").isEmpty ? nil : FS.str(f, "extra"))
             }.filter { !known.contains($0.id) }
             if !new.isEmpty {
                 insertSorted(new)
-                let others = new.filter { $0.member != myMemberID }
+                let others = new.filter { $0.member != myMemberID && concernsMe($0) }
                 unread += others.count
                 if notify { notifyLocal(others) }
             }
@@ -410,11 +443,33 @@ final class PartyService {
         }
     }
 
+    /// Reações e comentários só avisam o dono do evento; cutucadas e duelos, o alvo.
+    private func concernsMe(_ e: PartyEvent) -> Bool {
+        switch e.kind {
+        case .reaction, .comment:
+            guard let t = e.target else { return false }
+            return events.first { $0.id == t }?.member == myMemberID
+        case .nudge, .duel: return e.target == myMemberID
+        default: return true
+        }
+    }
+
     private func insertSorted(_ new: [PartyEvent]) {
         events.append(contentsOf: new)
         events.sort { $0.ts < $1.ts }
-        if events.count > 1500 { events.removeFirst(events.count - 1500) }
+        let limit = 2000
+        if events.count > limit {
+            // apara os mais antigos, mas mantém desafios e duelos
+            var drop = events.count - limit
+            events.removeAll { e in
+                guard drop > 0, !e.kind.isPinned else { return false }
+                drop -= 1
+                return true
+            }
+        }
     }
+
+    var myID: String { myMemberID }
 
     /// Sincroniza a cada minuto enquanto o app está aberto.
     func startPolling() {
@@ -460,7 +515,7 @@ final class PartyService {
         var byMember = Dictionary(uniqueKeysWithValues: party.members.map { ($0.id, MemberStats(member: $0)) })
         var days: [String: Set<Date>] = [:], allDays: [String: Set<Date>] = [:]
         var moodSum: [String: (Double, Int)] = [:]
-        for e in events {
+        for e in events where e.kind.isActivity {
             let day = cal.startOfDay(for: e.date)
             allDays[e.member, default: []].insert(day)
             guard e.ts >= t0, var s = byMember[e.member] else { continue }

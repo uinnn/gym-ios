@@ -12,7 +12,9 @@ targets:
   Gym:
     type: application
     platform: iOS
-    sources: [GymApp]
+    sources: [GymApp, GymShared]
+    dependencies:
+      - target: GymWidgets
     info:
       path: GymApp/Info.plist
       properties:
@@ -21,11 +23,36 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSCameraUsageDescription: "A câmera lê o código de barras dos alimentos."
         NSBluetoothAlwaysUsageDescription: "O app usa o Bluetooth para ler o peso e a bioimpedância da sua balança."
+        NSHealthShareUsageDescription: "O Gym lê passos, calorias ativas, frequência cardíaca, HRV e sono para melhorar suas métricas."
+        NSHealthUpdateUsageDescription: "O Gym salva pesagens, água, calorias e treinos no Apple Saúde."
+        NSLocationWhenInUseUsageDescription: "A localização registra o percurso, a distância e o ritmo do seu cardio."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "A localização continua registrando o cardio com a tela bloqueada."
+        NSPhotoLibraryUsageDescription: "Escolha fotos de progresso e de pratos."
+        NSSupportsLiveActivities: true
+        UIBackgroundModes: [location]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gym.app
+        CODE_SIGN_ENTITLEMENTS: GymApp/Gym.entitlements
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
+  GymWidgets:
+    type: app-extension
+    platform: iOS
+    sources: [GymWidgets, GymShared]
+    info:
+      path: GymWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Gym
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gym.app.widgets
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: GymWidgets/GymWidgets.entitlements
+        SKIP_INSTALL: YES
   GymTests:
     type: bundle.unit-test
     platform: iOS

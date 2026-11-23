@@ -5,6 +5,8 @@ struct PartyView: View {
     @State private var service = PartyService.shared
     @State private var period = 0
     @State private var showSettings = false
+    @State private var showChat = false
+    @State private var showAchievements = false
     @State private var configured = FirebaseConfig.isConfigured
 
     var body: some View {
@@ -22,12 +24,16 @@ struct PartyView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("OK") { dismiss() } }
                 if service.party != nil {
-                    ToolbarItem(placement: .primaryAction) {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Button { showChat = true } label: { Image(systemName: "bubble.left.and.bubble.right.fill") }
+                        Button { showAchievements = true } label: { Image(systemName: "medal.fill") }
                         Button { showSettings = true } label: { Image(systemName: "slider.horizontal.3") }
                     }
                 }
             }
             .sheet(isPresented: $showSettings) { PartySettingsView() }
+            .sheet(isPresented: $showChat) { PartyChatView() }
+            .sheet(isPresented: $showAchievements) { AchievementsView() }
             .task { await service.refresh(force: true); service.markRead() }
             .refreshable { await service.refresh(force: true) }
         }
@@ -42,8 +48,10 @@ struct PartyView: View {
                 inviteCard(party)
                 Picker("", selection: $period) { Text("7 dias").tag(0); Text("30 dias").tag(1) }.pickerStyle(.segmented)
                 totalsCard(stats)
+                ChallengesCard(party: party, events: service.events)
                 rankingCard(stats)
-                feedCard
+                DuelsCard(party: party, events: service.events)
+                PartyFeedCard(events: service.events)
                 if let err = service.lastError {
                     Text(err).font(.caption2).foregroundStyle(.secondary)
                 }
@@ -124,6 +132,12 @@ struct PartyView: View {
                             Text(detail(m)).font(.caption2).foregroundStyle(.secondary)
                         }
                         Spacer()
+                        if !service.isMe(m.id), canNudge(m.id) {
+                            Button {
+                                service.post(.nudge, "cutucou \(m.member.name): bora se mexer hoje? 👉", target: m.id)
+                            } label: { Text("👉").font(.title3) }
+                            .buttonStyle(.plain)
+                        }
                         VStack(alignment: .trailing) {
                             Text("\(m.points)").font(.headline)
                             if m.streak > 0 { Text("\(m.streak)🔥").font(.caption2) }
@@ -136,6 +150,14 @@ struct PartyView: View {
         }
     }
 
+    /// Pode cutucar quem está há 2 dias sem atividade, no máximo uma vez por dia.
+    private func canNudge(_ member: String) -> Bool {
+        let now = Date.now.timeIntervalSince1970
+        let lastActivity = service.events.last { $0.member == member && $0.kind.isActivity }?.ts ?? 0
+        let lastNudge = service.events.last { $0.kind == .nudge && $0.target == member && service.isMe($0.member) }?.ts ?? 0
+        return now - lastActivity > 2 * 86400 && now - lastNudge > 86400
+    }
+
     private func detail(_ m: PartyService.MemberStats) -> String {
         var p = ["\(m.activeDays) dias ativos"]
         if let w = m.counts[.workout] { p.append("\(w) treinos") }
@@ -143,29 +165,6 @@ struct PartyView: View {
         return p.joined(separator: " · ")
     }
 
-    private var feedCard: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Atividades", systemImage: "list.bullet").font(.headline)
-                if service.events.isEmpty {
-                    Text("Nada ainda. Assim que alguém pesar, comer, treinar ou fizer um check-in, aparece aqui.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                ForEach(service.events.suffix(80).reversed()) { e in
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: e.kind.icon).foregroundStyle(Theme.accent).frame(width: 30, height: 30)
-                            .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(e.emoji) \(e.name)").font(.subheadline.bold())
-                            Text(e.text).font(.callout).fixedSize(horizontal: false, vertical: true)
-                            Text(e.date, format: .relative(presentation: .named)).font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
 }
 
 // MARK: - Sem party
@@ -224,7 +223,7 @@ struct PartySettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    ForEach(PartyKind.allCases) { k in
+                    ForEach(PartyKind.shareable) { k in
                         Toggle(isOn: Binding(get: { service.shared.contains(k) },
                                              set: { on in if on { service.shared.insert(k) } else { service.shared.remove(k) } })) {
                             Label(k.title, systemImage: k.icon)

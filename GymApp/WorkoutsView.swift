@@ -13,6 +13,7 @@ struct WorkoutsView: View {
     @State private var showStats = false
     @State private var detail: WorkoutSession?
     @State private var viewing: WorkoutRoutine?
+    @State private var cardioLive = false
 
     private var finished: [WorkoutSession] { sessions.filter { !$0.isActive } }
     private var running: WorkoutSession? { sessions.first { $0.isActive } }
@@ -44,6 +45,8 @@ struct WorkoutsView: View {
                         weekCard.appear(0.05)
                         if let next = nextRoutine, running == nil { nextCard(next).appear(0.1) }
                         quickStart.appear(0.12)
+                        CardioCard().appear(0.14)
+                        PeriodizationCard(sessions: finished).appear(0.16)
                         routinesSection
                         if !finished.isEmpty { historySection }
                     }
@@ -68,6 +71,15 @@ struct WorkoutsView: View {
             .sheet(isPresented: $showGenerator) { ProgramGeneratorSheet() }
             .sheet(isPresented: $showStats) { WorkoutStatsView() }
             .sheet(item: $detail) { s in SessionDetailView(session: s) { start(copyOf: $0) } }
+            .fullScreenCover(isPresented: $cardioLive) { CardioLiveView() }
+            .onChange(of: AppRouter.shared.openCardio, initial: true) { _, v in
+                if v { AppRouter.shared.openCardio = false; cardioLive = true }
+            }
+            .onChange(of: AppRouter.shared.openWorkout, initial: true) { _, v in
+                guard v else { return }
+                AppRouter.shared.openWorkout = false
+                if let r = running { active = r } else if let n = nextRoutine { start(n) }
+            }
         }
     }
 

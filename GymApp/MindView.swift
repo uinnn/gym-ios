@@ -43,10 +43,10 @@ struct MindView: View {
     private final class Memo { var key = ""; var insights: [MindInsight] = [] }
 
     private var insights: [MindInsight] {
-        let key = "\(moods.count)|\(sleeps.count)|\(workouts.count)|\(foods.count)|\(water.count)|\(practices.count)|\(moods.last?.date.timeIntervalSince1970 ?? 0)"
+        let key = "\(moods.count)|\(sleeps.count)|\(workouts.count)|\(foods.count)|\(water.count)|\(practices.count)|\(moods.last?.date.timeIntervalSince1970 ?? 0)|\(HealthSync.shared.dailySteps.count)"
         if memo.key != key {
             memo.insights = MindInsightEngine.compute(moods: moods, sleeps: sleeps, workouts: workouts, foods: foods,
-                                                      water: water, practices: practices)
+                                                      water: water, practices: practices, steps: HealthSync.shared.dailySteps)
             memo.key = key
         }
         return memo.insights

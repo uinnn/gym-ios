@@ -103,6 +103,8 @@ struct SleepView: View {
     @Query(sort: \SleepEntry.wake) private var all: [SleepEntry]
     @Bindable private var prefs = MindPrefs.shared
     @State private var showLog = false
+    @State private var imported: Int?
+    @Environment(\.modelContext) private var context
     @State private var editing: SleepEntry?
     @State private var days = 14
 
@@ -140,7 +142,17 @@ struct SleepView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button { showLog = true } label: { Image(systemName: "plus.circle.fill") }
                 }
+                if HealthSync.shared.isOn {
+                    ToolbarItem(placement: .bottomBar) {
+                        Button {
+                            Task { imported = await HealthSync.shared.importSleep(into: context) }
+                        } label: { Label("Importar do Apple Saúde", systemImage: "heart.text.square") }
+                    }
+                }
             }
+            .alert("Sono importado", isPresented: Binding(get: { imported != nil }, set: { if !$0 { imported = nil } })) {
+                Button("OK") {}
+            } message: { Text(imported == 0 ? "Nenhuma noite nova encontrada." : "\(imported ?? 0) noite(s) adicionada(s).") }
             .sheet(isPresented: $showLog) { SleepLogSheet() }
             .sheet(item: $editing) { SleepLogSheet(existing: $0) }
         }

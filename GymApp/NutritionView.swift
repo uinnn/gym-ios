@@ -6,6 +6,7 @@ enum Diary {
     @MainActor static func log(_ food: FoodItem, grams: Double, meal: Meal, date: Date, in context: ModelContext) {
         let log = FoodLog(date: date, meal: meal, food: food, grams: grams)
         context.insert(log)
+        HealthSync.shared.saveFood(kcal: log.nutrients.kcal, date: date)
         PartyService.shared.post(.food, "comeu \(food.name) (\(Int(grams)) g · \(Int(log.nutrients.kcal)) kcal)", value: log.nutrients.kcal)
         let id = food.id
         let saved = (try? context.fetch(FetchDescriptor<SavedFood>(predicate: #Predicate { $0.foodID == id })))?.first
@@ -148,7 +149,8 @@ struct NutritionView: View {
 
     private var summaryCard: some View {
         let t = targets, n = totals
-        let burned = workoutKcal
+        let hk = HealthSync.shared
+        let burned = hk.isOn && hk.useActiveKcal && Calendar.current.isDateInToday(day) ? max(workoutKcal, hk.activeKcal) : workoutKcal
         let goal = t.kcal + (WorkoutPrefs.shared.addWorkoutKcal ? burned : 0)
         let remaining = goal - n.kcal
         return Card {
@@ -386,6 +388,10 @@ struct WaterCard: View {
                     ForEach([200.0, 500.0], id: \.self) { ml in
                         Button("+\(Int(ml))") {
                             context.insert(WaterLog(date: Diary.timestamp(for: day), ml: ml))
+                            HealthSync.shared.saveWater(ml, date: Diary.timestamp(for: day))
+                            if total < goal, total + ml >= goal, Calendar.current.isDateInToday(day) {
+                                PartyService.shared.post(.water, "bateu a meta de água (\((goal / 1000).fmt(1)) L) 💧", value: goal / 1000)
+                            }
                             bump += 1
                         }
                         .font(.caption.bold())
@@ -431,7 +437,7 @@ struct FastingCard: View {
                             Text(Self.phase(h)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
-                    Button("Encerrar") { withAnimation { s.end = .now } }
+                    Button("Encerrar") { withAnimation { s.end = .now }; LiveActivities.end() }
                         .font(.caption.bold()).buttonStyle(.borderedProminent).tint(Theme.excellent)
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
@@ -447,7 +453,9 @@ struct FastingCard: View {
                     Menu {
                         ForEach([12.0, 14.0, 16.0, 18.0, 20.0, 24.0], id: \.self) { h in
                             Button("\(Int(h)):\(Int(24 - min(h, 24))) — \(Int(h)) horas") {
-                                context.insert(FastingSession(goalHours: h))
+                                let f = FastingSession(goalHours: h)
+                                context.insert(f)
+                                LiveActivities.startFasting(hours: h, start: f.start)
                             }
                         }
                     } label: {

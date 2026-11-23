@@ -28,6 +28,9 @@ jobs:
         run: |
           mkdir Payload
           cp -R build/Build/Products/Release-iphoneos/Gym.app Payload/
+          # assinatura ad-hoc só para embutir as permissões (Saúde, App Group); o Sideloadly reassina
+          codesign -f -s - --entitlements GymWidgets/GymWidgets.entitlements Payload/Gym.app/PlugIns/GymWidgets.appex
+          codesign -f -s - --entitlements GymApp/Gym.entitlements Payload/Gym.app
           zip -qry Gym.ipa Payload
 
       - uses: actions/upload-artifact@v4

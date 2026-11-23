@@ -15,7 +15,7 @@ enum MindInsightEngine {
     struct DayMood { var mood = 0.0, stress = 0.0, energy = 0.0, n = 0.0 }
 
     static func compute(moods: [MoodEntry], sleeps: [SleepEntry], workouts: [WorkoutSession], foods: [FoodLog],
-                        water: [WaterLog], practices: [MindSession]) -> [MindInsight] {
+                        water: [WaterLog], practices: [MindSession], steps: [Date: Double] = [:]) -> [MindInsight] {
         let cal = Calendar.current
         func day(_ d: Date) -> Date { cal.startOfDay(for: d) }
 
@@ -97,6 +97,13 @@ enum MindInsightEngine {
         compare("Telas", icon: "iphone", condition: { tagged[$0].map { $0.contains(.screen) } },
                 positive: "Dias de muita tela tiveram humor {p} maior.",
                 negative: "Dias de muita tela tiveram humor {p} menor.")
+
+        compare("Passos e humor", icon: "figure.walk", condition: { steps[$0].map { $0 >= 7000 } },
+                positive: "Nos dias com 7.000+ passos, seu humor foi {p} maior.",
+                negative: "Dias com 7.000+ passos tiveram humor {p} menor.")
+        compare("Passos e estresse", icon: "shoeprints.fill", condition: { steps[$0].map { $0 >= 7000 } },
+                positive: "Caminhar 7.000+ passos veio com {p} menos estresse.",
+                negative: "Nos dias de mais passos o estresse foi {p} maior.", metric: \.stress, lowerIsBetter: true)
 
         // Correlação sono × humor (Pearson)
         let pairs = days.compactMap { d, m in sleepHours[d].map { ($0, m.mood) } }

@@ -88,6 +88,7 @@ struct ProfileView: View {
                 } header: { Text("Treino e alimentação") } footer: {
                     Text("Quando ligado, as calorias gastas nos treinos do dia aumentam sua meta de alimentação. Nesse caso, prefira o nível de atividade \"Sedentário\" ou \"Leve\" no perfil para não contar o exercício duas vezes.")
                 }
+                HealthSection()
                 Section {
                     Toggle(isOn: $reminders.enabled.animation()) { Label("Lembrete diário", systemImage: "bell.badge.fill") }
                     if reminders.enabled {

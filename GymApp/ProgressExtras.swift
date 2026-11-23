@@ -116,7 +116,8 @@ struct ProgressPhotosView: View {
         .sheet(item: $viewing) { p in PhotoDetailView(photo: p) }
     }
 
-    private func add(_ img: UIImage) {
+    private func add(_ original: UIImage) {
+        let img = original.mirrored()
         let full = PhotoCodec.encode(img, maxSide: 1600, quality: 0.75)
         let thumb = PhotoCodec.encode(img, maxSide: 360, quality: 0.6)
         context.insert(ProgressPhoto(date: .now, pose: pose, kg: weights.first?.kg, image: full, thumb: thumb))
@@ -535,6 +536,19 @@ struct MonthlyReportButton: View {
             ShareLink(item: url) { Label("Enviar PDF", systemImage: "square.and.arrow.up.fill") }
         } else {
             Button { url = MonthlyReport.pdf(context, month: month) } label: { Label("Gerar relatório (PDF)", systemImage: "doc.richtext") }
+        }
+    }
+}
+
+extension UIImage {
+    /// Espelha horizontalmente (como num espelho), já aplicando a orientação da câmera.
+    func mirrored() -> UIImage {
+        let f = UIGraphicsImageRendererFormat.default()
+        f.scale = scale
+        return UIGraphicsImageRenderer(size: size, format: f).image { ctx in
+            ctx.cgContext.translateBy(x: size.width, y: 0)
+            ctx.cgContext.scaleBy(x: -1, y: 1)
+            draw(in: CGRect(origin: .zero, size: size))
         }
     }
 }

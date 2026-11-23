@@ -180,6 +180,14 @@ struct NutritionLabelScanSection: View {
                 .buttonStyle(.bordered)
             }
             .disabled(busy)
+            .fullScreenCover(isPresented: $showCamera) { CameraPicker { process($0) }.ignoresSafeArea() }
+            .onChange(of: item) { _, it in
+                guard let it else { return }
+                Task {
+                    if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { process(img) }
+                    item = nil
+                }
+            }
             if busy {
                 HStack { ProgressView(); Text("Lendo a tabela…").foregroundStyle(.secondary) }
             } else if let message {
@@ -189,14 +197,6 @@ struct NutritionLabelScanSection: View {
             Text("Ler tabela nutricional")
         } footer: {
             Text("Fotografe a tabela reta e bem iluminada; inclua a lista de ingredientes para detectar alérgicos. A leitura é feita no próprio iPhone; confira os valores antes de salvar.")
-        }
-        .sheet(isPresented: $showCamera) { CameraPicker { process($0) }.ignoresSafeArea() }
-        .onChange(of: item) { _, it in
-            guard let it else { return }
-            Task {
-                if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { process(img) }
-                item = nil
-            }
         }
     }
 

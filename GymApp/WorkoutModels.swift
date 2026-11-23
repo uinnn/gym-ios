@@ -267,6 +267,7 @@ final class WorkoutPrefs {
     var equipRaw: String { didSet { d.set(equipRaw, forKey: "genEquip") } }
     var volumeDelta: Int { didSet { d.set(volumeDelta, forKey: "genVolume") } }
     var maxExercises: Int { didSet { d.set(maxExercises, forKey: "genMaxEx") } }
+    var balanceMuscles: Bool { didSet { d.set(balanceMuscles, forKey: "genBalance") } }
 
     func weight(_ m: Muscle) -> Int { focus[m.rawValue] ?? 0 }
 
@@ -285,6 +286,7 @@ final class WorkoutPrefs {
         equipRaw = d.string(forKey: "genEquip") ?? "mixed"
         volumeDelta = d.integer(forKey: "genVolume")
         maxExercises = d.object(forKey: "genMaxEx") as? Int ?? 8
+        balanceMuscles = d.object(forKey: "genBalance") as? Bool ?? true
     }
 
     func toggle(_ id: String) {

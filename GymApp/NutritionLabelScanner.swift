@@ -48,35 +48,55 @@ enum NutritionLabelReader {
             per100Col = nums.firstIndex { $0.value == 100 } ?? 0
         }
 
-        func value(_ line: String, kcal: Bool = false) -> Double? {
-            var nums = numbers(in: line).filter { $0.unit != "%" && $0.unit != "kj" }
-            if kcal {
-                let k = nums.filter { $0.unit == "kcal" }
+        enum Kind { case kcal, grams, milligrams }
+
+        /// Só aceita números com a unidade certa (ou sem unidade) e depois do nome do nutriente,
+        /// para não confundir "100 ml", "200 g" da porção ou %VD com o valor.
+        func value(_ line: String, key: String, kind: Kind) -> Double? {
+            let tail = line.range(of: key).map { String(line[$0.upperBound...]) } ?? line
+            var nums: [Double] = []
+            for x in numbers(in: tail) {
+                switch (kind, x.unit) {
+                case (.kcal, "kcal"), (.kcal, ""), (.grams, "g"), (.grams, ""), (.milligrams, "mg"), (.milligrams, ""):
+                    nums.append(x.value)
+                case (.milligrams, "g"): nums.append(x.value * 1000)
+                case (.grams, "mg"): nums.append(x.value / 1000)
+                default: continue   // %, kJ, ml, mcg…
+                }
+            }
+            // No kcal, se houver número com "kcal", ignora os sem unidade (ex.: kJ lido sem a unidade).
+            if kind == .kcal {
+                let k = numbers(in: tail).filter { $0.unit == "kcal" }.map(\.value)
                 if !k.isEmpty { nums = k }
             }
             guard !nums.isEmpty else { return nil }
-            if let c = per100Col {
-                return nums.indices.contains(c) ? nums[c].value : (c == 0 ? nums[0].value : nil)
-            }
-            return nums[0].value
+            if let c = per100Col { return nums.indices.contains(c) ? nums[c] : nums[0] }
+            return nums[0]
         }
 
-        func find(_ keys: [String], not excl: [String] = [], kcal: Bool = false) -> Double? {
-            for l in lines where keys.contains(where: l.contains) && !excl.contains(where: l.contains) {
-                if let v = value(l, kcal: kcal) { r.found += 1; return v }
+        func find(_ keys: [String], not excl: [String] = [], _ kind: Kind = .grams) -> Double? {
+            for l in lines where !excl.contains(where: l.contains) {
+                guard let k = keys.first(where: l.contains) else { continue }
+                if let v = value(l, key: k, kind: kind) { r.found += 1; return v }
             }
             return nil
         }
 
         var n = Nutrients()
-        n.kcal = find(["valor energetico", "valor calorico", "energia"], kcal: true) ?? 0
-        n.carbs = find(["carboidrato"], not: ["acucar"]) ?? 0
+        n.kcal = find(["valor energetico", "valor calorico", "energia"], .kcal) ?? 0
+        n.carbs = find(["carboidratos", "carboidrato"], not: ["acucar"]) ?? 0
         n.sugar = find(["acucares totais", "acucar total"]) ?? find(["acucares"], not: ["adicionad", "alcool"]) ?? 0
-        n.protein = find(["proteina"]) ?? 0
+        n.protein = find(["proteinas", "proteina"]) ?? 0
         n.fat = find(["gorduras totais", "gordura total", "lipidios"]) ?? 0
-        n.saturated = find(["saturada"]) ?? 0
-        n.fiber = find(["fibra"]) ?? 0
-        n.sodium = find(["sodio"]) ?? 0
+        n.saturated = find(["saturadas", "saturada"]) ?? 0
+        n.fiber = find(["fibras alimentares", "fibra alimentar", "fibras", "fibra"]) ?? 0
+        n.sodium = find(["sodio"], .milligrams) ?? 0
+
+        // Conferência: kcal ≈ 4·carbo + 4·proteína + 9·gordura. Se não bater, usa o calculado.
+        let calc = 4 * n.carbs + 4 * n.protein + 9 * n.fat
+        if calc > 0, n.kcal <= 0 || abs(n.kcal - calc) / calc > 0.5 { n.kcal = calc.rounded() }
+        if n.sugar > n.carbs { n.sugar = 0 }
+        if n.saturated > n.fat { n.saturated = 0 }
 
         // Sem coluna de 100 g: os valores são da porção.
         if per100Col == nil, let s = r.serving, s > 0 { n = n.scaled(100 / s) }
@@ -119,15 +139,17 @@ enum NutritionLabelReader {
 
     private static func groupRows(_ pieces: [Piece]) -> [String] {
         let sorted = pieces.sorted { $0.box.midY > $1.box.midY }
-        var rows: [[Piece]] = []
+        var rows: [(y: Double, h: Double, items: [Piece])] = []
         for p in sorted {
-            if let last = rows.last?.first, abs(last.box.midY - p.box.midY) < max(last.box.height, p.box.height) * 0.6 {
-                rows[rows.count - 1].append(p)
+            if let i = rows.indices.min(by: { abs(rows[$0].y - p.box.midY) < abs(rows[$1].y - p.box.midY) }),
+               abs(rows[i].y - p.box.midY) < min(rows[i].h, p.box.height) * 0.5 {
+                rows[i].items.append(p)
             } else {
-                rows.append([p])
+                rows.append((p.box.midY, p.box.height, [p]))
             }
         }
-        return rows.map { $0.sorted { $0.box.minX < $1.box.minX }.map(\.text).joined(separator: " ") }
+        return rows.sorted { $0.y > $1.y }
+            .map { $0.items.sorted { $0.box.minX < $1.box.minX }.map(\.text).joined(separator: " ") }
     }
 
     static func norm(_ s: String) -> String {

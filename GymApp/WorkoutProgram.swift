@@ -110,15 +110,16 @@ enum ProgramGenerator {
         var equip: EquipmentPreference = .mixed
         var volumeDelta = 0
         var maxExercises = 8
+        var balance = false
 
         static func fromPrefs() -> Options {
             let p = WorkoutPrefs.shared
             var f: [Muscle: Int] = [:]
             for (k, v) in p.focus { if let m = Muscle(rawValue: k), v > 0 { f[m] = v } }
-            if !p.advanced { return Options(focus: f.mapValues { _ in 2 }) }
+            if !p.advanced { return Options(focus: f.mapValues { _ in 2 }, balance: p.balanceMuscles) }
             return Options(focus: f, style: ExerciseStyle(rawValue: p.styleRaw) ?? .balanced,
                            equip: EquipmentPreference(rawValue: p.equipRaw) ?? .mixed,
-                           volumeDelta: p.volumeDelta, maxExercises: p.maxExercises)
+                           volumeDelta: p.volumeDelta, maxExercises: p.maxExercises, balance: p.balanceMuscles)
         }
     }
 
@@ -209,6 +210,9 @@ enum ProgramGenerator {
                 plans[k].items.insert(it, at: max(0, plans[k].items.count - (goal == .fatLoss ? 1 : 0)))
             }
         }
+        if o.balance {
+            balance(&plans, goal: goal, place: place, focus: o.focus, maxExercises: o.maxExercises)
+        }
         return plans
     }
 }
@@ -268,6 +272,13 @@ struct ProgramGeneratorSheet: View {
                     }
                     .pickerStyle(.segmented)
                     Toggle("Variar exercícios", isOn: $vary)
+                    Toggle(isOn: $prefs.balanceMuscles.animation(.spring)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Equilibrar músculos")
+                            Text("Cada músculo principal com 10–20 séries por semana e treinado 2x por semana")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     if !prefs.favorites.isEmpty {
                         Label("\(prefs.favorites.count) favoritos terão prioridade", systemImage: "star.fill")
                             .font(.caption).foregroundStyle(.yellow)
@@ -331,6 +342,7 @@ struct ProgramGeneratorSheet: View {
             .onChange(of: prefs.equipRaw) { _, _ in regenerate() }
             .onChange(of: prefs.volumeDelta) { _, _ in regenerate() }
             .onChange(of: prefs.maxExercises) { _, _ in regenerate() }
+            .onChange(of: prefs.balanceMuscles) { _, _ in regenerate() }
         }
     }
 
@@ -533,13 +545,17 @@ struct WeeklyPreviewStats: View {
 
     var body: some View {
         let b = TrainingBreakdown(plans.flatMap(\.items))
+        let freq = ProgramGenerator.frequency(plans)
         VStack(alignment: .leading, spacing: 6) {
-            Text("Séries por semana").font(.caption.bold()).foregroundStyle(.secondary)
-            ForEach(b.muscleSets.prefix(10), id: \.0) { m, v in
+            Text("Séries por semana · frequência").font(.caption.bold()).foregroundStyle(.secondary)
+            ForEach(b.muscleSets.prefix(12), id: \.0) { m, v in
+                let f = freq[m] ?? 0
                 HStack(spacing: 8) {
                     Text(m.label).font(.caption).frame(width: 84, alignment: .leading)
                     ProgressBar(progress: v / 20, tint: Muscle.weeklySetsRange.contains(v) ? Theme.good : Theme.warm, height: 6)
                     Text(v.fmt(0)).font(.caption.monospacedDigit()).frame(width: 26, alignment: .trailing)
+                    Text("\(f)x").font(.caption2.bold().monospacedDigit())
+                        .foregroundStyle(f >= 2 ? Theme.good : Theme.warm).frame(width: 22, alignment: .trailing)
                 }
             }
         }

@@ -96,8 +96,7 @@ enum NutritionLabelReader {
 
     /// Lê "ALÉRGICOS: CONTÉM ... PODE CONTER ...", "CONTÉM GLÚTEN" e "CONTÉM LACTOSE".
     static func allergens(in text: String) -> [String] {
-        let t = text.replacingOccurrences(of: "
-", with: " ")
+        let t = text.replacingOccurrences(of: "\n", with: " ")
         func segment(after key: String) -> String? {
             guard let r = t.range(of: key) else { return nil }
             let rest = t[r.upperBound...]

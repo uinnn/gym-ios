@@ -7,8 +7,8 @@ import UserNotifications
 /// Chaves do projeto Firebase. Pode ser preenchido aqui (vale para todos que instalarem o app)
 /// ou dentro do app, na tela da Party.
 enum FirebaseConfig {
-    static let builtInAPIKey = ""
-    static let builtInProjectID = ""
+    static let builtInAPIKey = "AIzaSyCPlTqK15G585C72wAgH07Nty59ka6kjOA"
+    static let builtInProjectID = "gymapp-1afd0"
 
     static var apiKey: String { UserDefaults.standard.string(forKey: "fb.apiKey").nonEmpty ?? builtInAPIKey }
     static var projectID: String { UserDefaults.standard.string(forKey: "fb.projectID").nonEmpty ?? builtInProjectID }

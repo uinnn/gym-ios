@@ -8,6 +8,7 @@ enum NutritionLabelReader {
         var per100 = Nutrients()
         var serving: Double?
         var found = 0
+        var allergens: [String] = []
     }
 
     static func read(_ image: UIImage) async -> Result {
@@ -36,7 +37,9 @@ enum NutritionLabelReader {
         let rows = groupRows(pieces)
         let lines = rows.map { norm($0) }
         var r = Result()
-        r.serving = serving(in: lines.joined(separator: "\n"))
+        let full = lines.joined(separator: "\n")
+        r.serving = serving(in: full)
+        r.allergens = allergens(in: full)
 
         // Colunas: no rótulo novo (RDC 429/2020) há "100 g | porção | %VD"; no antigo, só a porção.
         var per100Col: Int? = nil
@@ -79,6 +82,40 @@ enum NutritionLabelReader {
         if per100Col == nil, let s = r.serving, s > 0 { n = n.scaled(100 / s) }
         r.per100 = n
         return r
+    }
+
+    // MARK: Alérgicos (RDC 26/2015) e glúten/lactose
+
+    private static let allergenKeys: [(String, [String])] = [
+        ("Leite", ["leite", "derivados de leite", "laticin"]), ("Ovo", ["ovo"]), ("Soja", ["soja"]),
+        ("Trigo", ["trigo"]), ("Amendoim", ["amendoim"]),
+        ("Castanhas/nozes", ["castanha", "nozes", "amendoa", "avela", "pistache", "macadamia", "peca"]),
+        ("Peixe", ["peixe"]), ("Crustáceos", ["crustace", "camarao"]), ("Centeio/cevada/aveia", ["centeio", "cevada", "aveia"]),
+        ("Látex natural", ["latex"]),
+    ]
+
+    /// Lê "ALÉRGICOS: CONTÉM ... PODE CONTER ...", "CONTÉM GLÚTEN" e "CONTÉM LACTOSE".
+    static func allergens(in text: String) -> [String] {
+        let t = text.replacingOccurrences(of: "
+", with: " ")
+        func segment(after key: String) -> String? {
+            guard let r = t.range(of: key) else { return nil }
+            let rest = t[r.upperBound...]
+            let end = rest.firstIndex { $0 == "." } ?? rest.endIndex
+            return String(rest[..<end])
+        }
+        var out: [String] = []
+        let alergicos = t.range(of: "alergicos") != nil
+        let contem = alergicos ? (segment(after: "alergicos") ?? "") : ""
+        let mainPart = contem.components(separatedBy: "pode conter").first ?? contem
+        let traces = segment(after: "pode conter") ?? ""
+        for (label, keys) in allergenKeys {
+            if keys.contains(where: mainPart.contains) { out.append("Contém \(label.lowercased())") }
+            else if keys.contains(where: traces.contains) { out.append("Pode conter \(label.lowercased())") }
+        }
+        if t.contains("contem gluten") && !t.contains("nao contem gluten") { out.append("Contém glúten") }
+        if t.contains("contem lactose") && !t.contains("nao contem lactose") && !t.contains("zero lactose") { out.append("Contém lactose") }
+        return out
     }
 
     private static func groupRows(_ pieces: [Piece]) -> [String] {
@@ -152,7 +189,7 @@ struct NutritionLabelScanSection: View {
         } header: {
             Text("Ler tabela nutricional")
         } footer: {
-            Text("Fotografe a tabela reta e bem iluminada. A leitura é feita no próprio iPhone; confira os valores antes de salvar.")
+            Text("Fotografe a tabela reta e bem iluminada; inclua a lista de ingredientes para detectar alérgicos. A leitura é feita no próprio iPhone; confira os valores antes de salvar.")
         }
         .sheet(isPresented: $showCamera) { CameraPicker { process($0) }.ignoresSafeArea() }
         .onChange(of: item) { _, it in
@@ -169,10 +206,11 @@ struct NutritionLabelScanSection: View {
         Task {
             let r = await NutritionLabelReader.read(img)
             busy = false
-            if r.found == 0 {
+            if r.found == 0 && r.allergens.isEmpty {
                 message = "Não consegui ler a tabela. Tente outra foto, mais perto e sem reflexo."
             } else {
                 message = "\(r.found) de 8 valores lidos\(r.serving.map { ", porção de \(Int($0)) g" } ?? ""). Confira abaixo."
+                if !r.allergens.isEmpty { message! += " ⚠️ " + r.allergens.joined(separator: ", ") + "." }
                 onResult(r)
             }
         }

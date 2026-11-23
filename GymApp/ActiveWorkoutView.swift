@@ -5,21 +5,36 @@ import UserNotifications
 enum WorkoutStarter {
     /// Cria uma sessão a partir de uma rotina, já preenchendo cargas e reps da última vez.
     static func session(from routine: WorkoutRoutine?, history: [WorkoutSession], bodyKg: Double) -> WorkoutSession {
+        let prefs = WorkoutPrefs.shared
+        var warmed = Set<Muscle>()
         let exercises: [SessionExercise] = (routine?.items ?? []).map { item in
             let prev = WorkoutMath.previous(item.exerciseID, before: .now, in: history).filter { $0.kind != .warmup }
-            let kind = item.exercise?.kind ?? .strength
-            let sets = (0..<item.sets).map { i -> SetLog in
-                var s = SetLog()
-                if kind == .cardio || kind == .timed {
+            let x = item.exercise
+            let kind = x?.kind ?? .strength
+            if kind == .cardio || kind == .timed {
+                let sets = (0..<item.sets).map { i -> SetLog in
+                    var s = SetLog()
                     s.minutes = prev.indices.contains(i) ? prev[i].minutes : Double(item.repsMin)
-                } else {
-                    let p = prev.indices.contains(i) ? prev[i] : prev.last
-                    s.kg = p?.kg ?? 0
-                    s.reps = p?.reps ?? item.repsMax
+                    return s
                 }
-                return s
+                return SessionExercise(exerciseID: item.exerciseID, sets: sets, restSeconds: item.restSeconds)
             }
-            return SessionExercise(exerciseID: item.exerciseID, sets: sets, restSeconds: item.restSeconds)
+            let plan = prefs.autoProgression
+                ? WorkoutCoach.progression(prev: prev, sets: item.sets, range: item.repsMin...max(item.repsMin, item.repsMax), exercise: x)
+                : WorkoutCoach.Plan(sets: (0..<item.sets).map { i in
+                    let p = prev.indices.contains(i) ? prev[i] : prev.last
+                    var s = SetLog(); s.kg = p?.kg ?? 0; s.reps = p?.reps ?? item.repsMax; return s
+                }, hint: nil)
+            var sets = plan.sets
+            // aquecimento só no primeiro exercício composto de cada músculo
+            if prefs.autoWarmup, let x, x.kind == .strength, x.isCompound, let m = x.primary.first, !warmed.contains(m),
+               let top = sets.map(\.kg).max() {
+                warmed.insert(m)
+                sets = WorkoutCoach.warmups(topKg: top, exercise: x) + sets
+            }
+            var e = SessionExercise(exerciseID: item.exerciseID, sets: sets, restSeconds: item.restSeconds)
+            e.hint = plan.hint
+            return e
         }
         return WorkoutSession(name: routine?.name ?? "Treino livre", exercises: exercises, bodyKg: bodyKg)
     }
@@ -168,6 +183,12 @@ struct ActiveWorkoutView: View {
                                 Button("\(s) s") { ex.wrappedValue.restSeconds = s }
                             }
                         }
+                        if !isCardio, let x, let top = e.sets.filter({ $0.kind != .warmup }).map(\.kg).max(), top > 0,
+                           !e.sets.contains(where: { $0.kind == .warmup }) {
+                            Button("Adicionar aquecimento", systemImage: "thermometer.medium") {
+                                withAnimation { ex.wrappedValue.sets.insert(contentsOf: WorkoutCoach.warmups(topKg: top, exercise: x), at: 0) }
+                            }
+                        }
                         Button("Substituir exercício", systemImage: "arrow.triangle.2.circlepath") {
                             replacing = e.id; showPicker = true
                         }
@@ -180,6 +201,9 @@ struct ActiveWorkoutView: View {
                    x.load.factor != 1 || x.load.bodyFraction > 0 || x.load.perSide {
                     Text("≈ \(x.load.real(kg: top, bodyKg: session.bodyKg).fmt(1)) kg reais movidos na série mais pesada")
                         .font(.caption2).foregroundStyle(Theme.accent2)
+                }
+                if let hint = e.hint, !isCardio {
+                    Label(hint, systemImage: "chart.line.uptrend.xyaxis").font(.caption2.bold()).foregroundStyle(Theme.accent)
                 }
                 if let best, !isCardio {
                     Text("Recorde: \(best.kg.fmt(1)) kg × \(best.reps) · 1RM estimado \(best.e1RM.fmt(1)) kg")

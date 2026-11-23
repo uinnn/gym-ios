@@ -203,6 +203,10 @@ struct FoodAmountSheet: View {
                         Text(food.name).font(.headline)
                         Text([food.brand, food.category, food.sourceLabel].compactMap { $0 }.joined(separator: " · "))
                             .font(.caption).foregroundStyle(.secondary)
+                        if let a = food.allergens, !a.isEmpty {
+                            Label(a.joined(separator: " · "), systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption.bold()).foregroundStyle(.orange)
+                        }
                     }
                     Picker("Refeição", selection: $chosenMeal) {
                         ForEach(Meal.allCases) { Label($0.label, systemImage: $0.icon).tag($0) }
@@ -262,12 +266,23 @@ struct CustomFoodSheet: View {
     @State private var brand = ""
     @State private var serving: Double?
     @State private var n = Nutrients()
+    @State private var allergens: [String] = []
 
     var body: some View {
         NavigationStack {
             Form {
                 NutritionLabelScanSection { r in
-                    withAnimation { n = r.per100; if let s = r.serving { serving = s } }
+                    withAnimation {
+                        if r.found > 0 { n = r.per100 }
+                        if let s = r.serving { serving = s }
+                        if !r.allergens.isEmpty { allergens = r.allergens }
+                    }
+                }
+                if !allergens.isEmpty {
+                    Section("Alérgicos") {
+                        ForEach(allergens, id: \.self) { Label($0, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+                        Button("Limpar", role: .destructive) { allergens = [] }
+                    }
                 }
                 Section("Alimento") {
                     TextField("Nome", text: $name)
@@ -292,7 +307,8 @@ struct CustomFoodSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Salvar") {
                         let food = FoodItem(id: barcode.map { "custom-bc-\($0)" } ?? "custom-\(UUID().uuidString)", name: name, category: "Meus alimentos",
-                                            brand: brand.isEmpty ? nil : brand, per100: n, servingGrams: serving)
+                                            brand: brand.isEmpty ? nil : brand, per100: n, servingGrams: serving,
+                                            allergens: allergens.isEmpty ? nil : allergens)
                         context.insert(SavedFood(food, custom: true))
                         dismiss()
                         onCreated(food)

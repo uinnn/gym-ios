@@ -75,6 +75,7 @@ struct FoodItem: Codable, Hashable, Identifiable {
     var servingGrams: Double? = nil
     var servingName: String? = nil
     var micros: Micros? = nil
+    var allergens: [String]? = nil
 
     var sourceLabel: String {
         if id.hasPrefix("taco") { return "TACO" }

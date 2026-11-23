@@ -130,6 +130,8 @@ struct SessionExercise: Codable, Identifiable, Hashable {
     var sets: [SetLog]
     var restSeconds: Int = 90
     var note: String = ""
+    /// Sugestão de progressão calculada ao iniciar o treino.
+    var hint: String? = nil
 
     var exercise: Exercise? { ExerciseCatalog.byID[exerciseID] }
     var doneSets: [SetLog] { sets.filter(\.done) }
@@ -251,6 +253,8 @@ final class WorkoutPrefs {
 
     var favorites: Set<String> { didSet { d.set(Array(favorites), forKey: "favExercises") } }
     var addWorkoutKcal: Bool { didSet { d.set(addWorkoutKcal, forKey: "addWorkoutKcal") } }
+    var autoWarmup: Bool { didSet { d.set(autoWarmup, forKey: "autoWarmup") } }
+    var autoProgression: Bool { didSet { d.set(autoProgression, forKey: "autoProgression") } }
     // últimas escolhas do gerador
     var goalRaw: String { didSet { d.set(goalRaw, forKey: "genGoal") } }
     var levelRaw: String { didSet { d.set(levelRaw, forKey: "genLevel") } }
@@ -269,6 +273,8 @@ final class WorkoutPrefs {
     private init() {
         favorites = Set(d.stringArray(forKey: "favExercises") ?? [])
         addWorkoutKcal = d.object(forKey: "addWorkoutKcal") as? Bool ?? true
+        autoWarmup = d.object(forKey: "autoWarmup") as? Bool ?? true
+        autoProgression = d.object(forKey: "autoProgression") as? Bool ?? true
         goalRaw = d.string(forKey: "genGoal") ?? "hypertrophy"
         levelRaw = d.string(forKey: "genLevel") ?? "beginner"
         placeRaw = d.string(forKey: "genPlace") ?? "gym"

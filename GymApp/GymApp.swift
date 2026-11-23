@@ -5,6 +5,7 @@ import SwiftData
 struct GymApp: App {
     @State private var scanner = ScaleScanner()
     @State private var registry = ProfileRegistry.shared
+    @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
@@ -13,6 +14,10 @@ struct GymApp: App {
                 .modelContainer(registry.container(for: registry.activeID))
                 .id(registry.activeID)
                 .transition(.opacity)
+                .onChange(of: registry.activeID, initial: true) { _, id in PartyService.shared.load(profile: id) }
+                .onChange(of: phase, initial: true) { _, p in
+                    if p == .active { PartyService.shared.startPolling() } else { PartyService.shared.stopPolling() }
+                }
         }
     }
 }
@@ -143,6 +148,12 @@ struct RootView: View {
         let hour = Calendar.current.component(.hour, from: s.date)
         if hour < 10 { e.tags = [.morning] } else if hour >= 21 { e.tags = [.night] }
         context.insert(e)
+        let party = PartyService.shared
+        let delta = entries.first.map { s.kg - $0.kg } ?? 0
+        party.post(.weight, party.showExactWeight
+                   ? "pesou \(s.kg.fmt(1)) kg" + (entries.isEmpty ? "" : " (\(delta.signed(1)) kg)")
+                   : (entries.isEmpty ? "fez a primeira pesagem ⚖️" : "pesou-se: \(delta.signed(1)) kg"),
+                   value: suspicious ? 0 : delta)
 
         let owner = (suspicious || recent.isEmpty) ? ProfileRegistry.shared.likelyOwner(of: s.kg) : nil
         var msg = "\(s.kg.fmt(2)) kg salvo"

@@ -134,7 +134,10 @@ struct MoodCheckInSheet: View {
         let e = existing ?? MoodEntry(date: date, mood: mood)
         e.date = date; e.mood = mood; e.energy = energy; e.stress = stress; e.anxiety = anxiety
         e.tags = tags; e.note = note
-        if existing == nil { context.insert(e) }
+        if existing == nil {
+            context.insert(e)
+            PartyService.shared.post(.mood, "fez check-in: \(Mood.emojis[min(max(mood - 1, 0), 4)]) humor \(mood)/5", value: Double(mood))
+        }
         withAnimation(.spring) { saved = true }
         Task { try? await Task.sleep(for: .seconds(0.35)); dismiss() }
     }

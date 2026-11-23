@@ -14,6 +14,7 @@ struct DashboardView: View {
     @State private var showAddMeasure = false
     @State private var showProfiles = false
     @State private var showSettings = false
+    @State private var showParty = false
 
     private var profile: UserProfile? { profiles.first }
     private var latest: WeightEntry? { entries.first }
@@ -58,6 +59,7 @@ struct DashboardView: View {
             }
             .sheet(isPresented: $showAddWeight) { AddWeightSheet() }
             .sheet(isPresented: $showAddMeasure) { AddMeasurementSheet() }
+            .sheet(isPresented: $showParty) { PartyView() }
         }
     }
 
@@ -71,6 +73,17 @@ struct DashboardView: View {
                 Text(greeting).font(.largeTitle.bold())
             }
             Spacer()
+            Button { showParty = true } label: {
+                Image(systemName: "person.3.fill").font(.body).foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44).background(.ultraThinMaterial, in: Circle())
+                    .overlay(alignment: .topTrailing) {
+                        if PartyService.shared.unread > 0 {
+                            Text("\(min(PartyService.shared.unread, 99))").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                                .padding(.horizontal, 5).padding(.vertical, 2).background(Theme.danger, in: Capsule())
+                        }
+                    }
+            }
+            .buttonStyle(PressableStyle())
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape.fill").font(.title3).foregroundStyle(.secondary)
                     .frame(width: 44, height: 44).background(.ultraThinMaterial, in: Circle())

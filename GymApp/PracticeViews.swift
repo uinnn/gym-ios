@@ -181,6 +181,7 @@ struct BreathingView: View {
         UIApplication.shared.isIdleTimerDisabled = false
         if save && elapsed >= 20 {
             context.insert(MindSession(kind: .breathing, detail: technique.name, seconds: elapsed))
+            PartyService.shared.post(.practice, "fez respiração \(technique.name) (\(max(1, Int(elapsed) / 60)) min) 🌬️", value: elapsed / 60)
         }
     }
 }
@@ -286,7 +287,10 @@ struct RelaxationView: View {
         guard let s = startedAt else { return }
         startedAt = nil
         let secs = Date.now.timeIntervalSince(s)
-        if secs >= 20 { context.insert(MindSession(kind: .relaxation, detail: "Relaxamento progressivo", seconds: secs)) }
+        if secs >= 20 {
+            context.insert(MindSession(kind: .relaxation, detail: "Relaxamento progressivo", seconds: secs))
+            PartyService.shared.post(.practice, "fez relaxamento muscular (\(max(1, Int(secs) / 60)) min) 🧘", value: secs / 60)
+        }
     }
 }
 
@@ -388,7 +392,10 @@ struct TimerPracticeView: View {
             // conta só o tempo de foco (sem as pausas)
             worked = focusAccum + (!breakTime ? blockStart.map { Date.now.timeIntervalSince($0) } ?? 0 : 0)
         }
-        if worked >= 30 { context.insert(MindSession(kind: kind, detail: isFocus ? "Pomodoro" : "Meditação", seconds: worked)) }
+        if worked >= 30 {
+            context.insert(MindSession(kind: kind, detail: isFocus ? "Pomodoro" : "Meditação", seconds: worked))
+            PartyService.shared.post(.practice, isFocus ? "focou \(max(1, Int(worked) / 60)) min 🎯" : "meditou \(max(1, Int(worked) / 60)) min 🧘", value: worked / 60)
+        }
         UIApplication.shared.isIdleTimerDisabled = false
     }
 }

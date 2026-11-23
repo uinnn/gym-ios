@@ -364,6 +364,11 @@ struct ActiveWorkoutView: View {
         exercises = cleaned
         session.exercises = cleaned
         session.end = .now
+        let sets = cleaned.map(\.sets.count).reduce(0, +)
+        let mins = session.duration / 60
+        if sets > 0 {
+            PartyService.shared.post(.workout, "concluiu \(session.name): \(Int(mins)) min, \(cleaned.count) exercícios, \(sets) séries 💪", value: mins)
+        }
         stopRest()
         summary = session
     }

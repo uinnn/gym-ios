@@ -90,7 +90,10 @@ struct SleepLogSheet: View {
     private func save() {
         let e = existing ?? SleepEntry(bedtime: bedtime, wake: wake, quality: quality)
         e.bedtime = bedtime; e.wake = wake; e.quality = quality; e.awakenings = awakenings; e.note = note
-        if existing == nil { context.insert(e) }
+        if existing == nil {
+            context.insert(e)
+            PartyService.shared.post(.sleep, "dormiu \(e.hours.fmt(1)) h 😴", value: e.hours)
+        }
         dismiss()
     }
 }

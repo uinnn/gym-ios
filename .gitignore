@@ -4,3 +4,8 @@ Payload/
 *.ipa
 GymApp/Info.plist
 .claude/settings.local.json
+# segredos — nunca versionar
+.env
+.env.*
+!.env.example
+GymApp/Secrets.swift

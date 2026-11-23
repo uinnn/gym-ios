@@ -4,11 +4,10 @@ import UserNotifications
 
 // MARK: - Configuração do Firebase
 
-/// Chaves do projeto Firebase. Pode ser preenchido aqui (vale para todos que instalarem o app)
-/// ou dentro do app, na tela da Party.
+/// Chaves do Firebase vêm do .env (gerado em Secrets.swift no build) ou da tela da Party.
 enum FirebaseConfig {
-    static let builtInAPIKey = "AIzaSyCPlTqK15G585C72wAgH07Nty59ka6kjOA"
-    static let builtInProjectID = "gymapp-1afd0"
+    static let builtInAPIKey = Secrets.firebaseAPIKey
+    static let builtInProjectID = Secrets.firebaseProjectID
 
     static var apiKey: String { UserDefaults.standard.string(forKey: "fb.apiKey").nonEmpty ?? builtInAPIKey }
     static var projectID: String { UserDefaults.standard.string(forKey: "fb.projectID").nonEmpty ?? builtInProjectID }
@@ -146,11 +145,12 @@ actor FirebaseClient {
         if let t = idToken, expiry > .now.addingTimeInterval(60) { return t }
         let key = FirebaseConfig.apiKey
         let json: [String: Any]
-        if let refresh = d.string(forKey: "fb.refresh") {
+        if let refresh = Keychain.refreshToken {
             var r = URLRequest(url: URL(string: "https://securetoken.googleapis.com/v1/token?key=\(key)")!)
             r.httpMethod = "POST"
             r.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            r.httpBody = "grant_type=refresh_token&refresh_token=\(refresh)".data(using: .utf8)
+            let enc = refresh.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? refresh
+            r.httpBody = "grant_type=refresh_token&refresh_token=\(enc)".data(using: .utf8)
             let j = try await send(r)
             json = ["idToken": j["id_token"] ?? "", "refreshToken": j["refresh_token"] ?? "",
                     "localId": j["user_id"] ?? "", "expiresIn": j["expires_in"] ?? "3600"]
@@ -164,7 +164,7 @@ actor FirebaseClient {
         guard let t = json["idToken"] as? String, !t.isEmpty else { throw PartyError.http(401, "sem token") }
         idToken = t
         expiry = .now.addingTimeInterval(Double(json["expiresIn"] as? String ?? "3600") ?? 3600)
-        if let r = json["refreshToken"] as? String, !r.isEmpty { d.set(r, forKey: "fb.refresh") }
+        if let r = json["refreshToken"] as? String, !r.isEmpty { Keychain.refreshToken = r }
         if let u = json["localId"] as? String, !u.isEmpty { d.set(u, forKey: "fb.uid") }
         return t
     }
@@ -538,5 +538,40 @@ final class PartyService {
             if let m = moodSum[s.id], m.1 > 0 { s.avgMood = m.0 / Double(m.1) }
             return s
         }.sorted { $0.points > $1.points }
+    }
+}
+
+// MARK: - Keychain (refresh token fora do UserDefaults)
+
+import Security
+
+enum Keychain {
+    private static let account = "fb.refresh"
+    private static var query: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrAccount as String: account]
+    }
+
+    static var refreshToken: String? {
+        get {
+            var q = query
+            q[kSecReturnData as String] = true
+            q[kSecMatchLimit as String] = kSecMatchLimitOne
+            var out: AnyObject?
+            if SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+               let data = out as? Data, let s = String(data: data, encoding: .utf8) { return s }
+            // migração do UserDefaults antigo
+            guard let legacy = UserDefaults.standard.string(forKey: account) else { return nil }
+            refreshToken = legacy
+            UserDefaults.standard.removeObject(forKey: account)
+            return legacy
+        }
+        set {
+            SecItemDelete(query as CFDictionary)
+            guard let v = newValue, let data = v.data(using: .utf8) else { return }
+            var q = query
+            q[kSecValueData as String] = data
+            q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            SecItemAdd(q as CFDictionary, nil)
+        }
     }
 }

@@ -64,6 +64,12 @@ struct DataManagementView: View {
             }
 
             Section {
+                MonthlyReportButton()
+            } header: { Text("Relatório mensal") } footer: {
+                Text("PDF de uma página com peso, composição, alimentação, treinos, sono, humor e medidas do mês. Bom para levar ao nutricionista ou médico.")
+            }
+
+            Section {
                 Button { importingCSV = true } label: { Label("Importar pesagens de CSV", systemImage: "square.and.arrow.down") }
             } header: { Text("Importar de outros apps") } footer: {
                 Text("Aceita planilhas com uma coluna de data e uma de peso (ex.: exportações de outros apps de balança). Pesagens repetidas são ignoradas.")

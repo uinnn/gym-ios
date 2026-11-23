@@ -137,6 +137,7 @@ struct MealPlanView: View {
     @State private var seed = 0
     @State private var swaps: [String: Int] = [:]
     @State private var addedMeals: Set<Meal> = []
+    @State private var showShopping = false
 
     private var planner: MealPlanner { MealPlanner(targets: targets, seed: seed, swaps: swaps) }
 
@@ -180,6 +181,9 @@ struct MealPlanView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } }
+                ToolbarItem(placement: .bottomBar) {
+                    Button { showShopping = true } label: { Label("Lista de compras", systemImage: "cart.fill") }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { seed += 1; swaps = [:]; addedMeals = [] } label: {
                         Label("Gerar outro", systemImage: "dice.fill")
@@ -187,6 +191,7 @@ struct MealPlanView: View {
                 }
             }
             .onAppear { seed = Calendar.current.ordinality(of: .day, in: .era, for: day) ?? 0 }
+            .sheet(isPresented: $showShopping) { ShoppingListView(targets: targets, seed: seed) }
         }
     }
 

@@ -32,7 +32,7 @@ final class ProfileRegistry {
     @ObservationIgnored private var containers: [String: ModelContainer] = [:]
 
     static let schema = Schema([UserProfile.self, WeightEntry.self, MeasurementEntry.self, FoodLog.self, SavedFood.self,
-                                WaterLog.self, FastingSession.self, WorkoutSession.self, WorkoutRoutine.self, CardioSession.self,
+                                WaterLog.self, FastingSession.self, WorkoutSession.self, WorkoutRoutine.self, CardioSession.self, Recipe.self, ProgressPhoto.self,
                                 MoodEntry.self, SleepEntry.self, MindSession.self, GratitudeEntry.self, Habit.self,
                                 HabitLog.self, AssessmentResult.self])
 

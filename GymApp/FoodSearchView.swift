@@ -20,6 +20,12 @@ struct FoodSearchView: View {
     @State private var picked: FoodItem?
     @State private var showScanner = false
     @State private var showCustom = false
+    @State private var showPhoto = false
+    @State private var showRecipes = false
+    @State private var pending: FoodItem?
+
+    /// Abre a porção depois que a folha anterior terminou de fechar.
+    private func takePending() { if let p = pending { pending = nil; picked = p } }
     @State private var category: String?
 
     private var results: [FoodItem] {
@@ -97,6 +103,8 @@ struct FoodSearchView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } }
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { showRecipes = true } label: { Image(systemName: "book.closed") }
+                    Button { showPhoto = true } label: { Image(systemName: "camera.viewfinder") }
                     Button { showCustom = true } label: { Image(systemName: "square.and.pencil") }
                     Button { showScanner = true } label: { Image(systemName: "barcode.viewfinder") }
                 }
@@ -111,6 +119,8 @@ struct FoodSearchView: View {
                 }
             }
             .sheet(isPresented: $showCustom) { CustomFoodSheet { picked = $0 } }
+            .sheet(isPresented: $showPhoto, onDismiss: takePending) { FoodPhotoView { pending = $0 } }
+            .sheet(isPresented: $showRecipes, onDismiss: takePending) { RecipesView { pending = $0 } }
             .onAppear { if saved.isEmpty { source = .taco } }
         }
     }

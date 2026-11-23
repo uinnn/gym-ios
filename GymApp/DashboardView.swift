@@ -49,6 +49,7 @@ struct DashboardView: View {
                             needsCard(a).appear(0.2)
                         }
                         if entries.count >= 2 { trendCard.appear(0.25) }
+                        if let goal = profiles.first?.goalWeightKg { ForecastCard(weights: entries, goal: goal).appear(0.27) }
                     }
                     .padding()
                 }

@@ -190,7 +190,7 @@ struct RootView: View {
 }
 
 enum BodySection: String, CaseIterable, Identifiable {
-    case metrics = "Métricas", measures = "Medidas", history = "Histórico"
+    case metrics = "Métricas", measures = "Medidas", photos = "Fotos", history = "Histórico"
     var id: String { rawValue }
 }
 
@@ -204,6 +204,7 @@ struct BodyView: View {
                 switch section {
                 case .metrics: MetricsView()
                 case .measures: MeasurementsView()
+                case .photos: ProgressPhotosView()
                 case .history: HistoryView()
                 }
             }

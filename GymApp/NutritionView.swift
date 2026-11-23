@@ -54,6 +54,7 @@ struct NutritionView: View {
         var targetsKey = "", targets: NutritionTargets = .fallback, nutrientContext: NutrientContext?
     }
     @State private var memo = Memo()
+    @State private var adjustBump = 0
 
     private var dayLogs: [FoodLog] {
         let key = "\(day.timeIntervalSince1970)|\(logs.count)|\(logs.last?.date.timeIntervalSince1970 ?? 0)"
@@ -66,7 +67,7 @@ struct NutritionView: View {
 
     private var targetsKey: String {
         let p = profiles.first
-        return "\(weights.count)|\(weights.last?.kg ?? 0)|\(measurements.count)|\(p?.heightCm ?? 0)|\(p?.sexRaw ?? "")|\(p?.birthDate.timeIntervalSince1970 ?? 0)|\(p?.activityRaw ?? "")|\(p?.goalRaw ?? "")|\(p?.goalWeightKg ?? 0)"
+        return "\(weights.count)|\(weights.last?.kg ?? 0)|\(measurements.count)|\(p?.heightCm ?? 0)|\(p?.sexRaw ?? "")|\(p?.birthDate.timeIntervalSince1970 ?? 0)|\(p?.activityRaw ?? "")|\(p?.goalRaw ?? "")|\(p?.goalWeightKg ?? 0)|\(CalorieAdjust.offset)"
     }
 
     private func refreshTargets() {
@@ -83,6 +84,7 @@ struct NutritionView: View {
         refreshTargets()
         return memo.nutrientContext ?? NutrientContext(male: true, age: 30, targets: .fallback)
     }
+    private var todayWater: Double { water.filter { cal.isDateInToday($0.date) }.map(\.ml).reduce(0, +) }
     private var dayWater: Double { water.filter { cal.isSameDay($0.date, day) }.map(\.ml).reduce(0, +) }
     private var totals: Nutrients { dayLogs.map(\.nutrients).total }
     /// Calorias gastas em treinos no dia escolhido.
@@ -102,12 +104,17 @@ struct NutritionView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         DayStrip(day: $day, logs: logs, targetKcal: targets.kcal).appear()
-                        summaryCard.appear(0.05)
+                        summaryCard.id(adjustBump).appear(0.05)
+                        if Calendar.current.isDateInToday(day), let g = profiles.first?.goal {
+                            CalorieAdjustCard(weights: weights, goal: g) { adjustBump += 1 }
+                        }
                         HStack(spacing: 12) {
                             WaterCard(day: day, total: dayWater, goal: targets.water)
                             FastingCard()
                         }
                         .appear(0.1)
+                        .onAppear { WaterReminder.reschedule(todayMl: todayWater, targetMl: targets.water) }
+                        .onChange(of: todayWater) { _, ml in WaterReminder.reschedule(todayMl: ml, targetMl: targets.water) }
                         ForEach(Array(Meal.allCases.enumerated()), id: \.element) { i, meal in
                             mealCard(meal).appear(0.12 + Double(i) * 0.03)
                         }

@@ -62,6 +62,9 @@ struct FoodSearchView: View {
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
                 }
+                if source == .recent && query.isEmpty {
+                    MealCombosSection(meal: meal, day: day) { dismiss() }
+                }
                 if source == .taco && query.isEmpty {
                     Section {
                         ScrollView(.horizontal, showsIndicators: false) {

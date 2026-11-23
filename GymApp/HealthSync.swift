@@ -20,6 +20,12 @@ final class HealthSync {
     private(set) var restingHR: Double?
     private(set) var hrv: Double?
     private(set) var dailySteps: [Date: Double] = [:]    // últimos 90 dias
+    // prontidão: hoje (últimas 24 h) e linha de base de 30 dias
+    private(set) var hrvToday: Double?
+    private(set) var hrvBase: Double?
+    private(set) var rhrToday: Double?
+    private(set) var rhrBase: Double?
+    private(set) var lastNightHours: Double?
     private(set) var lastRefresh: Date?
 
     /// Usar calorias ativas do Saúde na meta de calorias (em vez de só as dos treinos).
@@ -124,7 +130,15 @@ final class HealthSync {
         async let rhr = average(.restingHeartRate, HKUnit.count().unitDivided(by: .minute()), days: 7)
         async let v = average(.heartRateVariabilitySDNN, .secondUnit(with: .milli), days: 7)
         async let daily = dailySum(.stepCount, .count(), days: 90)
+        async let hT = average(.heartRateVariabilitySDNN, .secondUnit(with: .milli), days: 1)
+        async let hB = average(.heartRateVariabilitySDNN, .secondUnit(with: .milli), days: 30)
+        async let rT = average(.restingHeartRate, HKUnit.count().unitDivided(by: .minute()), days: 1)
+        async let rB = average(.restingHeartRate, HKUnit.count().unitDivided(by: .minute()), days: 30)
+        async let nights = sleepNights(days: 1)
         steps = await st; activeKcal = await ak; restingHR = await rhr; hrv = await v; dailySteps = await daily
+        hrvToday = await hT; hrvBase = await hB; rhrToday = await rT; rhrBase = await rB
+        let n = await nights
+        lastNightHours = n.last.map { $0.wake.timeIntervalSince($0.bed) / 3600 }
         lastRefresh = .now
     }
 

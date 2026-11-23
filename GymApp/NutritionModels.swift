@@ -222,10 +222,11 @@ struct NutritionTargets {
 
     init(analysis a: BodyAnalysis) {
         let male = a.input.isMale
-        kcal = a[.targetCalories]?.value ?? 2000
+        let adj = CalorieAdjust.offset
+        kcal = (a[.targetCalories]?.value ?? 2000) + adj
         protein = a[.proteinNeed]?.value ?? 100
         fat = a[.fatNeed]?.value ?? 60
-        carbs = a[.carbNeed]?.value ?? 250
+        carbs = max(50, (a[.carbNeed]?.value ?? 250) + adj / 4)   // o ajuste entra/sai dos carboidratos
         fiber = a[.fiberNeed]?.value ?? 28
         water = a.input.kg * 35
         sodiumMax = 2300

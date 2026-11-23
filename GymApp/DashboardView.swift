@@ -30,6 +30,7 @@ struct DashboardView: View {
                         hero.appear(0.05)
                         quickActions.appear(0.1)
                         HealthTodayCard().appear(0.12)
+                        InsightsHubCard().appear(0.13)
                         if let ctx {
                             let a = ctx.current
                             scoreStrip(a).appear(0.15)

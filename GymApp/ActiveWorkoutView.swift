@@ -189,6 +189,9 @@ struct ActiveWorkoutView: View {
                                 withAnimation { ex.wrappedValue.sets.insert(contentsOf: WorkoutCoach.warmups(topKg: top, exercise: x), at: 0) }
                             }
                         }
+                        if let x, !isCardio {
+                            Button("Aparelho ocupado: trocar já", systemImage: "person.2.fill") { quickSwap(ex, from: x) }
+                        }
                         Button("Substituir exercício", systemImage: "arrow.triangle.2.circlepath") {
                             replacing = e.id; showPicker = true
                         }
@@ -314,6 +317,29 @@ struct ActiveWorkoutView: View {
             .focused($focused)
             .frame(width: width, height: 34)
             .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: Academia lotada
+
+    /// Troca na hora por um equivalente de outro equipamento (favoritos primeiro), mantendo as séries feitas.
+    private func quickSwap(_ ex: Binding<SessionExercise>, from x: Exercise) {
+        let used = Set(exercises.map(\.exerciseID))
+        let fav = WorkoutPrefs.shared.favorites
+        let opts = ExerciseAlternatives.options(for: x.id).filter { !used.contains($0.id) }
+        let other = opts.filter { $0.equipment != x.equipment }
+        let pool = (other.isEmpty ? opts : other)
+            .sorted { (fav.contains($0.id) ? 1 : 0, $0.score(style: .best, equip: .mixed)) > (fav.contains($1.id) ? 1 : 0, $1.score(style: .best, equip: .mixed)) }
+        guard let pick = pool.prefix(3).randomElement() else { return }
+        let prevKg = WorkoutMath.previous(pick.id, before: session.start, in: past).filter { $0.kind != .warmup }.map(\.kg).max() ?? 0
+        withAnimation(.spring) {
+            ex.wrappedValue.exerciseID = pick.id
+            for i in ex.wrappedValue.sets.indices where !ex.wrappedValue.sets[i].done {
+                ex.wrappedValue.sets[i].kg = prevKg
+                if ex.wrappedValue.sets[i].kind == .warmup { ex.wrappedValue.sets[i].kg = (prevKg * 0.5).rounded() }
+            }
+            ex.wrappedValue.hint = "Trocado de \(x.name) (aparelho ocupado)"
+        }
+        tick += 1
     }
 
     // MARK: Descanso

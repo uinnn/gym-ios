@@ -253,6 +253,9 @@ extension WorkoutSession: Syncable {
         var p: [String: Any] = ["start": ms(start), "name": name, "note": note, "bodyKg": bodyKg, "rating": rating]
         if let end { p["end"] = ms(end) }
         p["exercises"] = blob(data) ?? []
+        p["kcal"] = WorkoutMath.kcal(self)
+        p["volume"] = WorkoutMath.volume(self)
+        p["sets"] = WorkoutMath.setsCount(self)
         return p
     }
     func apply(_ p: [String: Any]) {
@@ -353,6 +356,70 @@ extension UserProfile: Syncable {
     }
 }
 
+extension FastingSession: Syncable {
+    static var collection: String { "fasting" }
+    convenience init() { self.init(goalHours: 16) }
+    func payload() -> [String: Any] {
+        var p: [String: Any] = ["start": ms(start), "goalHours": goalHours]
+        if let end { p["end"] = ms(end) }
+        return p
+    }
+    func apply(_ p: [String: Any]) {
+        if let d = syncDate(p["start"]) { start = d }
+        end = syncDate(p["end"])
+        if let v = dbl(p["goalHours"]) { goalHours = v }
+    }
+}
+
+extension MindSession: Syncable {
+    static var collection: String { "practices" }
+    convenience init() { self.init(kind: .breathing, seconds: 0) }
+    func payload() -> [String: Any] { ["date": ms(date), "kind": kindRaw, "title": kind.label, "detail": detail, "seconds": seconds] }
+    func apply(_ p: [String: Any]) {
+        if let d = syncDate(p["date"]) { date = d }
+        kindRaw = p["kind"] as? String ?? kindRaw
+        detail = p["detail"] as? String ?? detail
+        if let v = dbl(p["seconds"]) { seconds = v }
+    }
+}
+
+extension GratitudeEntry: Syncable {
+    static var collection: String { "gratitude" }
+    convenience init() { self.init(items: []) }
+    func payload() -> [String: Any] { ["date": ms(date), "items": items] }
+    func apply(_ p: [String: Any]) {
+        if let d = syncDate(p["date"]) { date = d }
+        if let i = p["items"] as? [String] { items = i }
+    }
+}
+
+extension Habit: Syncable {
+    static var collection: String { "habits" }
+    convenience init() { self.init(name: "", icon: "checkmark.circle.fill", colorIndex: 0, order: 0) }
+    func payload() -> [String: Any] {
+        ["uid": uid, "name": name, "icon": icon, "colorIndex": colorIndex, "order": order, "createdAt": ms(createdAt), "archived": archived]
+    }
+    func apply(_ p: [String: Any]) {
+        uid = p["uid"] as? String ?? uid
+        name = p["name"] as? String ?? name
+        icon = p["icon"] as? String ?? icon
+        colorIndex = (p["colorIndex"] as? Int) ?? colorIndex
+        order = (p["order"] as? Int) ?? order
+        if let d = syncDate(p["createdAt"]) { createdAt = d }
+        archived = p["archived"] as? Bool ?? archived
+    }
+}
+
+extension HabitLog: Syncable {
+    static var collection: String { "habitLogs" }
+    convenience init() { self.init(habitUID: "", day: .now) }
+    func payload() -> [String: Any] { ["habit": habitUID, "day": ms(day)] }
+    func apply(_ p: [String: Any]) {
+        habitUID = p["habit"] as? String ?? habitUID
+        if let d = syncDate(p["day"]) { day = d }
+    }
+}
+
 /// Tipos sincronizados e como cada um é buscado/criado (apaga o tipo concreto).
 struct SyncKind {
     let collection: String
@@ -370,7 +437,9 @@ struct SyncKind {
         .of(UserProfile.self, "Perfil"), .of(WeightEntry.self, "Pesagens"), .of(MeasurementEntry.self, "Medidas"),
         .of(FoodLog.self, "Alimentação"), .of(WaterLog.self, "Água"), .of(SavedFood.self, "Alimentos salvos"),
         .of(WorkoutSession.self, "Treinos"), .of(WorkoutRoutine.self, "Rotinas"), .of(CardioSession.self, "Cardio"),
-        .of(MoodEntry.self, "Humor"), .of(SleepEntry.self, "Sono"),
+        .of(MoodEntry.self, "Humor"), .of(SleepEntry.self, "Sono"), .of(FastingSession.self, "Jejum"),
+        .of(MindSession.self, "Práticas"), .of(GratitudeEntry.self, "Gratidão"), .of(Habit.self, "Hábitos"),
+        .of(HabitLog.self, "Hábitos feitos"),
     ]
 
     static func label(_ collection: String) -> String { all.first { $0.collection == collection }?.label ?? collection }
@@ -535,6 +604,7 @@ final class SyncEngine {
         guard signedIn else { status = "Entre na sua conta em Ajustes → Sincronização."; return }
         guard online else { status = "Sem internet: tente de novo quando estiver conectado."; return }
         await upload(items, deletes: [])
+        await sendSummary()
     }
 
     private func upload(_ items: [any Syncable], deletes: [Tombstone]) async {
@@ -570,31 +640,87 @@ final class SyncEngine {
         }
     }
 
-    /// Metas e composição corporal calculadas no iPhone, para o site mostrar sem refazer as fórmulas.
+    /// Tudo o que o iPhone calcula (metas, métricas, recuperação, prontidão, recordes…) para o site mostrar igual ao app.
     private func summaryWrite(_ uid: String) -> [String: Any] {
         let profile = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first
         let weights = (try? context.fetch(FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date)]))) ?? []
         let measures = (try? context.fetch(FetchDescriptor<MeasurementEntry>())) ?? []
-        let t = NutrientContext.make(profile, weights, measures).targets
+        let sessions = ((try? context.fetch(FetchDescriptor<WorkoutSession>())) ?? []).filter { !$0.isActive }
+        let sleeps = (try? context.fetch(FetchDescriptor<SleepEntry>())) ?? []
+        let moods = (try? context.fetch(FetchDescriptor<MoodEntry>())) ?? []
+        let nctx = NutrientContext.make(profile, weights, measures)
+        let t = nctx.targets
+        let info = ProfileRegistry.shared.profiles.first { $0.id == profileID }
         var p: [String: Any] = [
-            "targets": ["kcal": t.kcal, "protein": t.protein, "carbs": t.carbs, "fat": t.fat, "fiber": t.fiber, "water": t.water],
-            "profileName": ProfileRegistry.shared.profiles.first { $0.id == profileID }?.name ?? "",
-            "emoji": ProfileRegistry.shared.profiles.first { $0.id == profileID }?.emoji ?? "",
+            "targets": ["kcal": t.kcal, "protein": t.protein, "carbs": t.carbs, "fat": t.fat, "fiber": t.fiber, "water": t.water,
+                        "sodiumMax": t.sodiumMax, "sugarMax": t.sugarMax, "saturatedMax": t.saturatedMax],
+            "addWorkoutKcal": WorkoutPrefs.shared.addWorkoutKcal,
+            "calorieAdjust": CalorieAdjust.offset,
+            "profileName": info?.name ?? profile?.name ?? "",
+            "emoji": info?.emoji ?? "",
+            "meals": Meal.allCases.map { ["id": $0.rawValue, "label": $0.label, "share": $0.share] },
         ]
+        if let profile {
+            p["profile"] = ["age": profile.age, "sex": profile.sex == .male ? "Masculino" : "Feminino", "heightCm": profile.heightCm,
+                            "goal": profile.goal.label, "goalWeightKg": profile.goalWeightKg, "activity": profile.activity.label]
+        }
+        // Referências de cada nutriente (para a tabela de vitaminas e minerais).
+        p["nutrients"] = NutrientID.allCases.map { id -> [String: Any] in
+            let r = id.reference(nctx)
+            var o: [String: Any] = ["id": id.rawValue, "title": id.title, "unit": id.unit, "group": id.group.rawValue,
+                                    "limit": id.kind == .limit, "rec": r.rec, "extra": id.isExtra]
+            if let m = r.min { o["min"] = m }
+            if let m = r.max { o["max"] = m }
+            return o
+        }
+        // Métricas corporais completas, por categoria.
         if let ctx = AnalysisContext(profile: profile, entries: weights, measurements: measures) {
             let a = ctx.current
             var m: [String: Any] = [:]
-            for id in MetricID.highlights + [.weight, .fatMass, .muscleMass, .tdee, .bodyScore] {
-                if let v = a[id]?.value, v.isFinite {
-                    m[id.rawValue] = ["value": v, "title": id.title, "unit": id.unit, "digits": id.digits,
-                                      "status": a[id]?.status?.label ?? ""]
-                }
+            for id in MetricID.allCases {
+                guard let x = a[id], x.value.isFinite else { continue }
+                m[id.rawValue] = ["value": x.value, "title": id.title, "unit": id.unit, "digits": id.digits,
+                                  "status": x.status?.label ?? "", "category": id.category.title]
             }
             p["metrics"] = m
             p["metricsDate"] = (weights.last?.date.timeIntervalSince1970 ?? 0) * 1000
         }
+        // Séries por músculo nos últimos 7 dias e recuperação.
+        let week = sessions.filter { $0.start >= Date.now.addingTimeInterval(-7 * 86400) }
+        p["muscleSets"] = WorkoutMath.muscleSets(week).map { ["muscle": $0.key.label, "sets": $0.value] }
+            .sorted { ($0["sets"] as? Double ?? 0) > ($1["sets"] as? Double ?? 0) }
+        p["recovery"] = Recovery.status(sessions).map { ["muscle": $0.key.label, "pct": $0.value.recovered,
+                                                         "last": $0.value.last.timeIntervalSince1970 * 1000] }
+        if let r = Readiness.compute(sleep: sleeps, moods: moods, sessions: sessions) {
+            p["readiness"] = ["score": r.score, "advice": r.advice, "factors": r.factors.map { ["label": $0.0, "value": $0.1] }]
+        }
+        // Recordes (1RM estimado) por exercício.
+        var best: [String: (Double, Double, Int, Date)] = [:]
+        for s in sessions {
+            for e in s.exercises {
+                guard let top = e.workSets.max(by: { $0.e1RM < $1.e1RM }), top.e1RM > 0 else { continue }
+                if top.e1RM > (best[e.exerciseID]?.0 ?? 0) { best[e.exerciseID] = (top.e1RM, top.kg, top.reps, s.start) }
+            }
+        }
+        p["prs"] = best.sorted { $0.value.0 > $1.value.0 }.prefix(15).map {
+            ["id": $0.key, "name": ExerciseCatalog.byID[$0.key]?.name ?? $0.key, "e1rm": $0.value.0, "kg": $0.value.1,
+             "reps": $0.value.2, "date": $0.value.3.timeIntervalSince1970 * 1000]
+        }
+        // Nomes e músculos de todos os exercícios do catálogo.
+        p["exercises"] = Dictionary(uniqueKeysWithValues: ExerciseCatalog.all.map {
+            ($0.id, ["n": $0.name, "m": $0.primary.first?.label ?? ""])
+        })
+        let st = StretchStore.shared
+        p["stretch"] = ["weekMinutes": st.weekMinutes, "streak": st.streak, "conditions": st.conditions.map(\.title).sorted(),
+                        "history": st.history.suffix(20).map { ["date": $0.date.timeIntervalSince1970 * 1000, "name": $0.name, "seconds": $0.seconds] }]
         return write(docPath(uid, "meta", "summary"), payload: p, updated: (Date.now.timeIntervalSince1970 * 1000).rounded(),
                      deleted: false, device: "iphone")
+    }
+
+    /// Envia só o resumo (ao abrir o app e depois de mudanças no perfil).
+    func sendSummary() async {
+        guard signedIn, online, let uid = SyncAuth.shared.uid else { return }
+        try? await commit([summaryWrite(uid)])
     }
 
     private func docPath(_ uid: String, _ c: String, _ id: String) -> String {
@@ -639,6 +765,7 @@ final class SyncEngine {
         Task {
             await pull()
             if mode == .auto { await uploadPending() }
+            await sendSummary()
         }
     }
 

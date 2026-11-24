@@ -135,6 +135,10 @@ enum PracticeKind: String, CaseIterable, Codable {
 
 @Model
 final class MindSession {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var date: Date = Date.now
     var kindRaw: String = PracticeKind.breathing.rawValue
     var detail: String = ""
@@ -150,6 +154,10 @@ final class MindSession {
 
 @Model
 final class GratitudeEntry {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var date: Date = Date.now
     var text: String = ""          // itens separados por quebra de linha
     init(date: Date = .now, items: [String]) { self.date = date; self.items = items }
@@ -163,6 +171,10 @@ final class GratitudeEntry {
 
 @Model
 final class Habit {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var uid: String = UUID().uuidString
     var name: String = ""
     var icon: String = "checkmark.circle.fill"
@@ -179,6 +191,10 @@ final class Habit {
 
 @Model
 final class HabitLog {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var habitUID: String = ""
     var day: Date = Date.now
     init(habitUID: String, day: Date) { self.habitUID = habitUID; self.day = Calendar.current.startOfDay(for: day) }

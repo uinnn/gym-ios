@@ -240,6 +240,10 @@ final class WaterLog {
 
 @Model
 final class FastingSession {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var start: Date = Date.now
     var end: Date?
     var goalHours: Double = 16

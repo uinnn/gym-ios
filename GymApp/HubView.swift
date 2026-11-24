@@ -8,6 +8,7 @@ struct HubOrb: View {
     @AppStorage("hub.orbHidden") private var hidden = false
     @State private var drag: CGSize = .zero
     @State private var open = false
+    @State private var assistant = false
     @State private var pulse = false
     private var party: PartyService { PartyService.shared }
 
@@ -32,6 +33,7 @@ struct HubOrb: View {
                             }
                     )
                     .onTapGesture { open = true }
+                    .onLongPressGesture(minimumDuration: 0.4) { assistant = true }
                     .transition(.scale.combined(with: .opacity))
             }
         }
@@ -41,6 +43,8 @@ struct HubOrb: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $assistant) { AssistantView() }
+        .sensoryFeedback(.impact(weight: .medium), trigger: assistant) { _, new in new && ThemeStore.shared.haptics }
         .sensoryFeedback(.impact(weight: .light), trigger: open) { _, new in new && ThemeStore.shared.haptics }
     }
 
@@ -78,7 +82,7 @@ struct HubView: View {
     @State private var water = WaterReminder.enabled
 
     enum HubSheet: String, Identifiable {
-        case party, chat, achievements, partySettings, profiles, profile, theme, data, scale
+        case assistant, party, chat, achievements, partySettings, profiles, profile, theme, data, scale
         var id: String { rawValue }
     }
 
@@ -86,6 +90,21 @@ struct HubView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
+                    Button { sheet = .assistant } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "mic.fill").font(.title2).foregroundStyle(.white)
+                                .frame(width: 48, height: 48).background(.white.opacity(0.2), in: Circle())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Assistente").font(.headline)
+                                Text("Fale ou digite: “comi 2 ovos e 1 pão”").font(.caption).opacity(0.9)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .foregroundStyle(.white).padding(14)
+                        .background(Theme.gradient, in: RoundedRectangle(cornerRadius: 20))
+                    }
+                    .buttonStyle(PressableStyle())
                     profileCard
                     partyCard
                     quickToggles
@@ -99,6 +118,7 @@ struct HubView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("OK") { dismiss() } } }
             .sheet(item: $sheet) { s in
                 switch s {
+                case .assistant: AssistantView()
                 case .party: PartyView()
                 case .chat: PartyChatView()
                 case .achievements: AchievementsView()
@@ -280,7 +300,7 @@ struct HubView: View {
                 Text("O botão flutuante está oculto. A Central continua no ícone de engrenagem da tela Início.")
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
             } else {
-                Text("Dica: arraste o botão flutuante para mudar de lugar.")
+                Text("Dica: arraste o botão flutuante para mudar de lugar e segure-o para abrir o Assistente.")
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
             }
         }

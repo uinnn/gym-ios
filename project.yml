@@ -21,6 +21,8 @@ targets:
         CFBundleDisplayName: Gym
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSMicrophoneUsageDescription: "O microfone é usado para você falar com o Assistente (ex.: \"comi 2 ovos\")."
+        NSSpeechRecognitionUsageDescription: "O Assistente transforma o que você fala em texto para registrar refeições, água, peso e sono."
         NSCameraUsageDescription: "A câmera lê o código de barras dos alimentos."
         NSBluetoothAlwaysUsageDescription: "O app usa o Bluetooth para ler o peso e a bioimpedância da sua balança."
         NSHealthShareUsageDescription: "O Gym lê passos, calorias ativas, frequência cardíaca, HRV e sono para melhorar suas métricas."

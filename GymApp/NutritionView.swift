@@ -39,6 +39,7 @@ struct NutritionView: View {
     @Query(sort: \FoodLog.date) private var logs: [FoodLog]
     @Query(sort: \WaterLog.date) private var water: [WaterLog]
     @Query(sort: \WorkoutSession.start) private var sessions: [WorkoutSession]
+    @State private var showAssistant = false
     @State private var day = Calendar.current.startOfDay(for: .now)
     @State private var addingMeal: Meal?
     @State private var editing: FoodLog?
@@ -123,8 +124,12 @@ struct NutritionView: View {
                     .padding()
                 }
             }
+            .sheet(isPresented: $showAssistant) { AssistantView() }
             .navigationTitle("Alimentação")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showAssistant = true } label: { Image(systemName: "mic.fill") }
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink { CompareView(mode: .food) } label: { Image(systemName: "square.split.2x1") }
                 }

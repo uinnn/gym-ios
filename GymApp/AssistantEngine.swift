@@ -508,8 +508,9 @@ enum AssistantParser {
         case .some(.some(let g)): grams = (qty ?? 1) * g
         case .some(.none): grams = (qty ?? 1) * (best.servingGrams ?? unitWeight ?? 100)
         case .none:
-            let last = data.saved.first { $0.foodID == best.id }?.lastGrams
-            grams = qty.map { $0 * (unitWeight ?? best.servingGrams ?? 100) } ?? (unitWeight ?? last ?? best.servingGrams ?? 100)
+            let last: Double? = data.saved.first { $0.foodID == best.id }?.lastGrams
+            let each: Double = unitWeight ?? best.servingGrams ?? 100
+            if let q = qty { grams = q * each } else { grams = unitWeight ?? last ?? each }
         }
         grams = min(max(grams.rounded(), 1), 3000)
         return AssistantDraft(kind: .food, source: piece, spoken: spoken, food: best, alternatives: alts, grams: grams)
@@ -682,9 +683,9 @@ enum AssistantParser {
 
     // MARK: Utilidades
 
-    static func norm(_ s: String) -> String { FoodDatabase.normalize(s).lowercased() }
+    nonisolated static func norm(_ s: String) -> String { FoodDatabase.normalize(s).lowercased() }
 
-    static func singular(_ s: String) -> String {
+    nonisolated static func singular(_ s: String) -> String {
         s.split(separator: " ").map { w -> String in
             var w = String(w)
             if w.count > 3 {
@@ -701,7 +702,7 @@ enum AssistantParser {
     }
 
     /// Distância de edição (Levenshtein) para tolerar erros de fala.
-    static func distance(_ a: String, _ b: String) -> Int {
+    nonisolated static func distance(_ a: String, _ b: String) -> Int {
         let a = Array(a.utf8), b = Array(b.utf8)
         if a.isEmpty { return b.count }
         if b.isEmpty { return a.count }

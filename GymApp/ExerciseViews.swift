@@ -204,6 +204,7 @@ struct ExerciseDetailView: View {
                     Spacer()
                     StatusChip(text: exercise.level.rawValue, color: exercise.level == .advanced ? .orange : Theme.accent2)
                 }
+                ExerciseDemoSection(folder: ExerciseMedia.folder(exercise: exercise.id))
                 let steps = exercise.steps
                 ForEach(steps.indices, id: \.self) { i in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {

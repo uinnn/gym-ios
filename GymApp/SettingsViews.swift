@@ -295,6 +295,7 @@ struct ThemeSettingsView: View {
 
     private var otherTab: some View {
         VStack(spacing: 14) {
+            group("Demonstrações dos exercícios", "photo.on.rectangle.angled") { MediaDownloadView() }
             group("Movimento", "wand.and.stars") {
                 Toggle("Animações", isOn: $store.animations)
                 Toggle("Vibração (haptics)", isOn: $store.haptics)

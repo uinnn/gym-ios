@@ -429,6 +429,9 @@ struct StretchDetailView: View {
                 }
                 LabeledContent("Áreas", value: s.areas.map(\.rawValue).joined(separator: ", "))
             }
+            if let f = ExerciseMedia.folder(stretch: s.id) {
+                Section { ExerciseDemoSection(folder: f) }
+            }
             Section("Como fazer") {
                 ForEach(Array(s.steps.enumerated()), id: \.offset) { i, t in
                     HStack(alignment: .top) {
@@ -620,6 +623,9 @@ struct StretchPlayerView: View {
                 }
             }
             .frame(width: 190, height: 190)
+            if let f = ExerciseMedia.folder(stretch: s.id) {
+                ExerciseAnimation(folder: f, height: 130)
+            }
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(s.steps.enumerated()), id: \.offset) { i, t in
                     Text("\(i + 1). \(t)").font(.subheadline)

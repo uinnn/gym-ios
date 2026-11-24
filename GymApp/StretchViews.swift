@@ -363,29 +363,6 @@ struct FlowChips: View {
     }
 }
 
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 6
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let w = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, row: CGFloat = 0, maxX: CGFloat = 0
-        for s in subviews {
-            let z = s.sizeThatFits(.unspecified)
-            if x + z.width > w && x > 0 { x = 0; y += row + spacing; row = 0 }
-            x += z.width + spacing; row = max(row, z.height); maxX = max(maxX, x)
-        }
-        return CGSize(width: min(maxX, w), height: y + row)
-    }
-    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = b.minX, y = b.minY, row: CGFloat = 0
-        for s in subviews {
-            let z = s.sizeThatFits(.unspecified)
-            if x + z.width > b.maxX && x > b.minX { x = b.minX; y += row + spacing; row = 0 }
-            s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(z))
-            x += z.width + spacing; row = max(row, z.height)
-        }
-    }
-}
-
 // MARK: - Condições
 
 struct ConditionsSheet: View {

@@ -10,3 +10,7 @@ GymApp/Info.plist
 !.env.example
 GymApp/Secrets.swift
 dist/
+
+# Site
+web/public/config.js
+.firebase/

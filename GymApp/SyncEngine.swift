@@ -94,6 +94,19 @@ actor SyncAuth {
         return u["emailVerified"] as? Bool ?? false
     }
 
+    /// Login feito no site (Google): o site devolve o refresh token para o app.
+    func signIn(refreshToken: String) async throws {
+        SecureStore.set("sync.refresh", refreshToken)
+        idToken = nil
+        let t = try await token()
+        let j = try await call("lookup", ["idToken": t])
+        guard let u = (j["users"] as? [[String: Any]])?.first, let id = u["localId"] as? String else {
+            throw SyncAuthError.message("Não consegui ler a conta.")
+        }
+        d.set(id, forKey: "sync.uid")
+        if let e = u["email"] as? String { d.set(e, forKey: "sync.email") }
+    }
+
     func signOut() {
         idToken = nil
         SecureStore.set("sync.refresh", nil)
@@ -549,11 +562,39 @@ final class SyncEngine {
                 if !done.isEmpty { tombstones = tombstones.filter { !done.contains($0) } }
                 progress = ((progress?.done ?? 0) + chunk.count, writes.count)
             }
+            try? await commit([summaryWrite(uid)])
             lastSync = .now
             status = "Enviado: \(writes.count) registro(s)."
         } catch {
             status = "Falha ao enviar: \(error.localizedDescription). Tentarei de novo depois."
         }
+    }
+
+    /// Metas e composição corporal calculadas no iPhone, para o site mostrar sem refazer as fórmulas.
+    private func summaryWrite(_ uid: String) -> [String: Any] {
+        let profile = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first
+        let weights = (try? context.fetch(FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date)]))) ?? []
+        let measures = (try? context.fetch(FetchDescriptor<MeasurementEntry>())) ?? []
+        let t = NutrientContext.make(profile, weights, measures).targets
+        var p: [String: Any] = [
+            "targets": ["kcal": t.kcal, "protein": t.protein, "carbs": t.carbs, "fat": t.fat, "fiber": t.fiber, "water": t.water],
+            "profileName": ProfileRegistry.shared.profiles.first { $0.id == profileID }?.name ?? "",
+            "emoji": ProfileRegistry.shared.profiles.first { $0.id == profileID }?.emoji ?? "",
+        ]
+        if let ctx = AnalysisContext(profile: profile, entries: weights, measurements: measures) {
+            let a = ctx.current
+            var m: [String: Any] = [:]
+            for id in MetricID.highlights + [.weight, .fatMass, .muscleMass, .tdee, .bodyScore] {
+                if let v = a[id]?.value, v.isFinite {
+                    m[id.rawValue] = ["value": v, "title": id.title, "unit": id.unit, "digits": id.digits,
+                                      "status": a[id]?.status?.label ?? ""]
+                }
+            }
+            p["metrics"] = m
+            p["metricsDate"] = (weights.last?.date.timeIntervalSince1970 ?? 0) * 1000
+        }
+        return write(docPath(uid, "meta", "summary"), payload: p, updated: (Date.now.timeIntervalSince1970 * 1000).rounded(),
+                     deleted: false, device: "iphone")
     }
 
     private func docPath(_ uid: String, _ c: String, _ id: String) -> String {

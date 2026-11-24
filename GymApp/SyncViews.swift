@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AuthenticationServices
 
 // MARK: - Botão ao lado de cada registro (modo manual)
 
@@ -114,6 +115,7 @@ extension View {
 // MARK: - Ajustes
 
 struct SyncSettingsView: View {
+    @Environment(\.webAuthenticationSession) private var webAuth
     @State private var engine = SyncEngine.shared
     @State private var email = ""
     @State private var password = ""
@@ -153,6 +155,16 @@ struct SyncSettingsView: View {
 
     private var loginSection: some View {
         Section {
+            Button {
+                Task { await google() }
+            } label: {
+                HStack {
+                    Image(systemName: "g.circle.fill").font(.title3)
+                    Text("Continuar com Google").bold()
+                    Spacer()
+                }
+            }
+            .disabled(working)
             Picker("", selection: $creating) {
                 Text("Entrar").tag(false)
                 Text("Criar conta").tag(true)
@@ -187,7 +199,26 @@ struct SyncSettingsView: View {
         } header: {
             Text("Conta")
         } footer: {
-            Text("A mesma conta será usada para entrar no site. Login com Google chega junto com o site.")
+            Text("A mesma conta é usada para entrar no site. O login com Google abre o seu site (\(FirebaseConfig.projectID).web.app), que precisa estar publicado.")
+        }
+    }
+
+    private func google() async {
+        working = true; error = nil; info = nil
+        defer { working = false }
+        do {
+            let url = URL(string: "https://\(FirebaseConfig.projectID).web.app/app-login.html")!
+            let cb = try await webAuth.authenticate(using: url, callbackURLScheme: "gymapp")
+            guard let token = URLComponents(url: cb, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "refresh" })?.value else {
+                error = "O site não devolveu o login."; return
+            }
+            try await SyncAuth.shared.signIn(refreshToken: token)
+            engine.didSignIn()
+            verified = true
+        } catch let e as ASWebAuthenticationSessionError where e.code == .canceledLogin {
+            return
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 

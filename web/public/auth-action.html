@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gym · Conta</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="boot"><div class="card" style="width:min(380px,92vw)">
+    <h2 style="margin-top:0" id="title">Um momento…</h2>
+    <div id="body" class="small"></div>
+  </div></div>
+  <script type="module">
+    import { firebaseConfig } from "./config.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+    import { getAuth, applyActionCode, verifyPasswordResetCode, confirmPasswordReset }
+      from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+
+    const auth = getAuth(initializeApp(firebaseConfig));
+    const q = new URLSearchParams(location.search);
+    const mode = q.get("mode"), code = q.get("oobCode");
+    const title = document.getElementById("title"), body = document.getElementById("body");
+    const set = (t, h) => { title.textContent = t; body.innerHTML = h; };
+
+    if (mode === "verifyEmail") {
+      // Aplica o código uma única vez, sem botão extra (evita o "link já usado").
+      applyActionCode(auth, code)
+        .then(() => set("E-mail verificado ✓", `<p>Pronto! No app, abra <b>Central → Sincronização</b> e toque em <b>Já verifiquei</b> (ou só reabra a tela).</p><a class="btn primary block" href="/">Abrir o site</a>`))
+        .catch(() => set("Link já usado ou expirado", `<p>Se você já tinha aberto este link antes, <b>seu e-mail provavelmente já está verificado</b>: confira no app em Central → Sincronização → <b>Já verifiquei</b>.</p><p class="muted">Se ainda aparecer como não verificado, peça um novo e-mail no app e abra só o mais recente.</p><a class="btn block" href="/">Abrir o site</a>`));
+    } else if (mode === "resetPassword") {
+      verifyPasswordResetCode(auth, code).then((email) => {
+        set("Nova senha", `<p class="muted">${email.replace(/</g, "&lt;")}</p><div class="field"><label>Nova senha</label><input class="input" id="p" type="password" autocomplete="new-password"></div><button class="btn primary block" id="ok">Salvar</button><div id="m"></div>`);
+        document.getElementById("ok").onclick = async () => {
+          try { await confirmPasswordReset(auth, code, document.getElementById("p").value); set("Senha alterada ✓", `<p>Entre no app ou no site com a nova senha.</p><a class="btn primary block" href="/">Abrir o site</a>`); }
+          catch (e) { document.getElementById("m").innerHTML = `<div class="msg err">Senha inválida (mínimo 6 caracteres) ou link expirado.</div>`; }
+        };
+      }).catch(() => set("Link expirado", `<p>Peça um novo e-mail de redefinição no app ou no site.</p>`));
+    } else {
+      set("Link inválido", `<p><a href="/">Abrir o site</a></p>`);
+    }
+  </script>
+</body>
+</html>

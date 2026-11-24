@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar no Gym</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="boot"><div class="card" style="width:min(360px,92vw);text-align:center">
+    <h2 style="margin-top:0">Entrar no app Gym</h2>
+    <p class="muted small" id="msg">Entre com o Google para conectar o iPhone à sua conta.</p>
+    <button class="btn primary block" id="go"><b>G</b> Continuar com Google</button>
+  </div></div>
+  <script type="module">
+    import { firebaseConfig } from "./config.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged }
+      from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+
+    const auth = getAuth(initializeApp(firebaseConfig));
+    const msg = document.getElementById("msg");
+    // Devolve o login para o app (o iPhone captura o endereço gymapp://).
+    const back = (u) => { location.href = "gymapp://auth?refresh=" + encodeURIComponent(u.refreshToken); };
+
+    getRedirectResult(auth).then((r) => { if (r?.user) back(r.user); }).catch((e) => { msg.textContent = e.message; });
+    // Já logado neste navegador: pede confirmação antes de entregar o acesso ao app.
+    onAuthStateChanged(auth, (u) => {
+      if (!u || u.isAnonymous) return;
+      msg.innerHTML = "Conectar o app Gym do seu iPhone à conta <b></b>?";
+      msg.querySelector("b").textContent = u.email || "";
+      const go = document.getElementById("go");
+      go.innerHTML = "Conectar o app";
+      go.onclick = () => back(u);
+    });
+
+    document.getElementById("go").onclick = async () => {
+      const provider = new GoogleAuthProvider();
+      try { await signInWithPopup(auth, provider); }
+      catch (e) {
+        if (String(e.code).includes("popup")) await signInWithRedirect(auth, provider);
+        else msg.textContent = e.message;
+      }
+    };
+  </script>
+</body>
+</html>

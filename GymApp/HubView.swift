@@ -82,7 +82,7 @@ struct HubView: View {
     @State private var water = WaterReminder.enabled
 
     enum HubSheet: String, Identifiable {
-        case assistant, party, chat, achievements, partySettings, profiles, profile, theme, data, scale
+        case sync, assistant, party, chat, achievements, partySettings, profiles, profile, theme, data, scale
         var id: String { rawValue }
     }
 
@@ -118,6 +118,7 @@ struct HubView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("OK") { dismiss() } } }
             .sheet(item: $sheet) { s in
                 switch s {
+                case .sync: NavigationStack { SyncSettingsView() }
                 case .assistant: AssistantView()
                 case .party: PartyView()
                 case .chat: PartyChatView()
@@ -293,6 +294,7 @@ struct HubView: View {
                 tile("Tema", "Cores, fundo e aparência", "paintpalette.fill", .theme)
                 tile("Perfis da família", "Trocar, criar e editar", "person.2.fill", .profiles)
                 tile("Party", "Privacidade e notificações", "person.3.fill", .partySettings)
+                tile("Sincronização", "Site, conta e modo automático ou manual", "arrow.triangle.2.circlepath.icloud.fill", .sync)
                 tile("Backup", "Importar e exportar dados", "arrow.up.arrow.down.circle.fill", .data)
                 tile("Balança", "Conexão e diagnóstico", "scalemass.fill", .scale)
             }

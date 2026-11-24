@@ -54,6 +54,10 @@ enum Goal: String, CaseIterable, Identifiable {
 
 @Model
 final class UserProfile {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var name: String = ""
     var sexRaw: String = Sex.male.rawValue
     var birthDate: Date = Calendar.current.date(byAdding: .year, value: -25, to: .now)!
@@ -112,6 +116,10 @@ enum WeighTag: String, CaseIterable, Identifiable {
 
 @Model
 final class WeightEntry {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var date: Date = Date.now
     var kg: Double = 0
     var source: String = "scale"   // "scale" ou "manual"
@@ -210,6 +218,10 @@ enum BodyPart: String, CaseIterable, Identifiable {
 
 @Model
 final class MeasurementEntry {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var date: Date = Date.now
     var neck: Double?
     var shoulders: Double?

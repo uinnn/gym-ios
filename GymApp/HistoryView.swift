@@ -371,6 +371,7 @@ struct HistoryView: View {
                             .foregroundStyle(d <= 0 ? Theme.good : Theme.warm)
                     }
                     Text("\(e.kg.fmt(2)) kg").font(.subheadline.bold().monospacedDigit())
+                    SyncButton(item: e)
                     Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
                 }
                 .foregroundStyle(.primary)

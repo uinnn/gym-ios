@@ -1,0 +1,9 @@
+// Cole este bloco DENTRO de "match /databases/{database}/documents { ... }"
+// nas regras do Firestore, sem apagar as regras que já existem (as da Party).
+// Cada conta só lê e grava os próprios dados.
+
+    match /users/{uid}/{collection}/{docId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == uid
+                         && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }

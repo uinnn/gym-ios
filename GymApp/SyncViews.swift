@@ -1,0 +1,318 @@
+import SwiftUI
+import SwiftData
+
+// MARK: - Botão ao lado de cada registro (modo manual)
+
+/// Mostra o estado de sincronização e, no modo manual, envia só aquele registro.
+struct SyncButton<M: Syncable>: View {
+    let item: M
+    @State private var engine = SyncEngine.shared
+    @State private var sending = false
+
+    var body: some View {
+        if engine.mode != .off && engine.signedIn && engine.profileID == ProfileRegistry.shared.activeID {
+            Group {
+                if sending {
+                    ProgressView().controlSize(.mini)
+                } else if item.isSynced {
+                    Image(systemName: "checkmark.icloud.fill").foregroundStyle(Theme.good.opacity(0.8))
+                } else if engine.mode == .manual {
+                    Button {
+                        sending = true
+                        Task { await engine.send([item]); sending = false }
+                    } label: {
+                        Image(systemName: "icloud.and.arrow.up").foregroundStyle(Theme.accent)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Enviar para o site")
+                } else {
+                    Image(systemName: "icloud.slash").foregroundStyle(.secondary)
+                        .accessibilityLabel("Aguardando internet")
+                }
+            }
+            .font(.caption)
+            .frame(width: 22)
+        }
+    }
+}
+
+// MARK: - Aviso de alterações vindas do site (modo manual)
+
+struct SyncIncomingModifier: ViewModifier {
+    @State private var engine = SyncEngine.shared
+    @State private var showDetail = false
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Alterações feitas no site",
+                   isPresented: Binding(get: { !engine.incoming.isEmpty && !showDetail }, set: { if !$0 && !showDetail { engine.discardIncoming() } })) {
+                Button("Aplicar") { engine.apply(engine.incoming) }
+                Button("Ver detalhes") { showDetail = true }
+                Button("Agora não", role: .cancel) { engine.discardIncoming() }
+            } message: {
+                Text(summary)
+            }
+            .sheet(isPresented: $showDetail) { IncomingSheet { showDetail = false } }
+    }
+
+    private var summary: String {
+        let g = Dictionary(grouping: engine.incoming, by: \.collection)
+        let parts = g.map { "\($0.value.count) em \(SyncKind.label($0.key))" }.sorted()
+        return "Há \(engine.incoming.count) alteração(ões): " + parts.joined(separator: ", ") + ". Aplicar neste iPhone?"
+    }
+}
+
+private struct IncomingSheet: View {
+    var close: () -> Void
+    @State private var engine = SyncEngine.shared
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(Dictionary(grouping: engine.incoming, by: \.collection).sorted { $0.key < $1.key }, id: \.key) { c, list in
+                    Section("\(SyncKind.label(c)) (\(list.count))") {
+                        ForEach(list) { r in
+                            HStack {
+                                Image(systemName: r.deleted ? "trash" : "arrow.down.circle")
+                                    .foregroundStyle(r.deleted ? Theme.danger : Theme.accent)
+                                Text(describe(r)).font(.subheadline)
+                                Spacer()
+                                Text(Date(timeIntervalSince1970: r.updated / 1000), format: .relative(presentation: .named))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Do site")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Agora não") { engine.discardIncoming(); close() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Aplicar tudo") { engine.apply(engine.incoming); close() }.bold() }
+            }
+        }
+    }
+
+    private func describe(_ r: RemoteChange) -> String {
+        if r.deleted { return "Apagado no site" }
+        let p = r.payload
+        if let n = p["name"] as? String, !n.isEmpty {
+            if let g = p["grams"] as? Double { return "\(n) · \(Int(g)) g" }
+            return n
+        }
+        if let kg = p["kg"] as? Double { return "Pesagem \(kg.fmt(1)) kg" }
+        if let ml = p["ml"] as? Double { return "Água \(Int(ml)) ml" }
+        if let m = p["mood"] as? Int { return "Humor \(m)" }
+        return "Registro atualizado"
+    }
+}
+
+extension View {
+    func syncIncomingPrompt() -> some View { modifier(SyncIncomingModifier()) }
+}
+
+// MARK: - Ajustes
+
+struct SyncSettingsView: View {
+    @State private var engine = SyncEngine.shared
+    @State private var email = ""
+    @State private var password = ""
+    @State private var creating = false
+    @State private var working = false
+    @State private var error: String?
+    @State private var info: String?
+    @State private var verified: Bool?
+    @State private var confirmOut = false
+    @State private var showPending = false
+
+    var body: some View {
+        Form {
+            if engine.signedIn { accountSection; modeSection; statusSection } else { loginSection }
+            Section {
+                Label("O app continua funcionando 100% offline. Sem internet, nada é perdido: os registros esperam na fila e são enviados depois.", systemImage: "wifi.slash")
+                Label("Só o perfil \"\(profileName)\" deste iPhone sincroniza com o site.", systemImage: "person.fill")
+                Label("Se o mesmo registro for editado no app e no site, vale a edição mais recente. Exclusões também sincronizam.", systemImage: "arrow.triangle.2.circlepath")
+                Label("Fotos de progresso, rotas de GPS do cardio e dados do Apple Saúde ficam só no iPhone.", systemImage: "lock.fill")
+            } header: { Text("Como funciona") }
+            .font(.caption).foregroundStyle(.secondary)
+        }
+        .navigationTitle("Sincronização")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { if engine.signedIn { verified = await SyncAuth.shared.emailVerified(); engine.refreshPending() } }
+        .sheet(isPresented: $showPending) { PendingSheet() }
+        .confirmationDialog("Sair da conta? Os dados continuam neste iPhone e no site.", isPresented: $confirmOut, titleVisibility: .visible) {
+            Button("Sair", role: .destructive) { Task { await engine.signOut() } }
+        }
+    }
+
+    private var profileName: String {
+        ProfileRegistry.shared.profiles.first { $0.id == engine.profileID }?.name ?? ProfileRegistry.shared.active.name
+    }
+
+    // MARK: Entrar / criar conta
+
+    private var loginSection: some View {
+        Section {
+            Picker("", selection: $creating) {
+                Text("Entrar").tag(false)
+                Text("Criar conta").tag(true)
+            }
+            .pickerStyle(.segmented)
+            TextField("E-mail", text: $email)
+                .keyboardType(.emailAddress).textContentType(.username)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+            SecureField("Senha (mín. 6 caracteres)", text: $password)
+                .textContentType(creating ? .newPassword : .password)
+            Button {
+                Task { await submit() }
+            } label: {
+                HStack {
+                    Text(creating ? "Criar conta" : "Entrar").bold()
+                    Spacer()
+                    if working { ProgressView() }
+                }
+            }
+            .disabled(working || email.isEmpty || password.count < 6)
+            if !creating {
+                Button("Esqueci a senha") {
+                    Task {
+                        do { try await SyncAuth.shared.resetPassword(email: email); info = "Enviamos um e-mail para redefinir a senha." }
+                        catch { self.error = error.localizedDescription }
+                    }
+                }
+                .font(.caption).disabled(email.isEmpty)
+            }
+            if let error { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.caption) }
+            if let info { Label(info, systemImage: "envelope.fill").foregroundStyle(Theme.accent).font(.caption) }
+        } header: {
+            Text("Conta")
+        } footer: {
+            Text("A mesma conta será usada para entrar no site. Login com Google chega junto com o site.")
+        }
+    }
+
+    private func submit() async {
+        working = true; error = nil; info = nil
+        defer { working = false }
+        do {
+            if creating {
+                try await SyncAuth.shared.signUp(email: email.trimmingCharacters(in: .whitespaces), password: password)
+                info = "Conta criada! Enviamos um e-mail de verificação."
+            } else {
+                try await SyncAuth.shared.signIn(email: email.trimmingCharacters(in: .whitespaces), password: password)
+            }
+            password = ""
+            engine.didSignIn()
+            verified = await SyncAuth.shared.emailVerified()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    // MARK: Conta conectada
+
+    private var accountSection: some View {
+        Section("Conta") {
+            LabeledContent("E-mail", value: engine.email ?? "—")
+            if verified == false {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("E-mail ainda não verificado", systemImage: "envelope.badge").foregroundStyle(.orange).font(.subheadline)
+                    Text("Verifique para depois poder entrar também com o Google na mesma conta.").font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Reenviar e-mail") { Task { try? await SyncAuth.shared.sendVerification(); info = "E-mail reenviado." } }
+                        Button("Já verifiquei") { Task { verified = await SyncAuth.shared.emailVerified() } }
+                    }
+                    .font(.caption).buttonStyle(.bordered)
+                }
+            }
+            if let info { Text(info).font(.caption).foregroundStyle(Theme.accent) }
+            Button("Sair da conta", role: .destructive) { confirmOut = true }
+        }
+    }
+
+    private var modeSection: some View {
+        Section {
+            Picker("Sincronização", selection: Binding(get: { engine.mode }, set: { new in
+                let wasOff = engine.mode == .off
+                engine.mode = new
+                if wasOff && new != .off && engine.lastSync == nil { Task { await engine.uploadEverything() } }
+            })) {
+                ForEach(SyncMode.allCases) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            switch engine.mode {
+            case .auto:
+                Text("Cada pesagem, água, refeição, treino e os outros registros são enviados sozinhos quando houver internet. Ao abrir o app, as mudanças feitas no site entram automaticamente.")
+            case .manual:
+                Text("Nada é enviado sozinho: toque na nuvem ao lado de cada registro, ou em \"Enviar tudo\". Ao abrir o app, se houver mudanças do site, ele pergunta antes de aplicar.")
+            case .off:
+                Text("Nada é enviado nem recebido. O app funciona normalmente, só neste iPhone.")
+            }
+        } header: { Text("Modo") }
+        .font(.caption)
+    }
+
+    private var statusSection: some View {
+        Section {
+            HStack {
+                Label(engine.online ? "Online" : "Sem internet", systemImage: engine.online ? "wifi" : "wifi.slash")
+                    .foregroundStyle(engine.online ? Theme.good : .orange)
+                Spacer()
+                if let last = engine.lastSync {
+                    Text("Última: \(last.formatted(.relative(presentation: .named)))").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Button { showPending = true } label: {
+                LabeledContent("Pendentes de envio", value: "\(engine.pendingCount)")
+            }
+            .disabled(engine.pendingCount == 0)
+            if let p = engine.progress {
+                ProgressView(value: Double(p.done), total: Double(max(p.total, 1))) { Text("Enviando \(p.done) de \(p.total)").font(.caption) }
+            }
+            Button {
+                Task { await engine.uploadPending() }
+            } label: { Label("Enviar tudo que está pendente", systemImage: "icloud.and.arrow.up") }
+            .disabled(engine.busy || engine.pendingCount == 0 || engine.mode == .off || !engine.online)
+            Button {
+                Task { await engine.pull() }
+            } label: { Label("Buscar alterações do site agora", systemImage: "icloud.and.arrow.down") }
+            .disabled(engine.busy || engine.mode == .off || !engine.online)
+            Button {
+                Task { await engine.uploadEverything() }
+            } label: { Label("Reenviar todo o histórico", systemImage: "arrow.clockwise.icloud") }
+            .disabled(engine.busy || engine.mode == .off || !engine.online)
+            if engine.busy { HStack { ProgressView(); Text("Sincronizando…").font(.caption) } }
+            if let s = engine.status { Text(s).font(.caption).foregroundStyle(.secondary) }
+        } header: { Text("Estado") }
+    }
+}
+
+private struct PendingSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var engine = SyncEngine.shared
+    @State private var groups: [(String, [any Syncable])] = []
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if engine.pendingDeletes > 0 {
+                    Section { Label("\(engine.pendingDeletes) exclusão(ões) esperando envio", systemImage: "trash") }
+                }
+                ForEach(groups, id: \.0) { label, items in
+                    Section {
+                        Button {
+                            Task { await engine.send(items); reload() }
+                        } label: { Label("Enviar \(items.count) de \(label)", systemImage: "icloud.and.arrow.up") }
+                        .disabled(!engine.online || engine.busy)
+                    } header: { Text(label) }
+                }
+            }
+            .navigationTitle("Pendentes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("OK") { dismiss() } } }
+            .onAppear(perform: reload)
+        }
+    }
+
+    private func reload() { groups = engine.pendingItems() }
+}

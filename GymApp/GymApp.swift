@@ -60,6 +60,7 @@ struct RootView: View {
         .fontDesign(store.font.design)
         .modifier(TextSizeModifier(size: store.textSize.size))
         .overlay { HubOrb() }
+        .syncIncomingPrompt()
         .overlay(alignment: .top) { toastView }
         .sensoryFeedback(.success, trigger: scanner.lastStable) { _, _ in store.haptics }
         .sensoryFeedback(.selection, trigger: tab) { _, _ in store.haptics }
@@ -70,6 +71,8 @@ struct RootView: View {
         .sheet(item: $report) { ReportView(entry: $0) }
         .onChange(of: rootPhase, initial: true) { _, p in
             if p == .active {
+                SyncEngine.shared.start()
+                SyncEngine.shared.appBecameActive()
                 AchievementEngine.check(context)
                 Task { await HealthSync.shared.refresh() }
             } else if p == .background {

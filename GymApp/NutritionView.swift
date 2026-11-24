@@ -241,6 +241,7 @@ struct NutritionView: View {
                                 }
                                 Spacer()
                                 Text("\(log.nutrients.kcal.fmt(0)) kcal").font(.subheadline.monospacedDigit())
+                                SyncButton(item: log)
                             }
                             .foregroundStyle(.primary)
                             .contentShape(Rectangle())

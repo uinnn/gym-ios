@@ -387,6 +387,7 @@ struct WorkoutsView: View {
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         if s.rating > 0 { Text(["😫", "😕", "🙂", "😃", "🔥"][s.rating - 1]) }
+                        SyncButton(item: s)
                     }
                 }
             }

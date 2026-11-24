@@ -140,6 +140,10 @@ struct SessionExercise: Codable, Identifiable, Hashable {
 
 @Model
 final class WorkoutSession {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var start: Date = Date.now
     var end: Date?
     var name: String = "Treino"
@@ -177,6 +181,10 @@ struct RoutineItem: Codable, Identifiable, Hashable {
 
 @Model
 final class WorkoutRoutine {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var name: String = "Rotina"
     var icon: String = "dumbbell.fill"
     var order: Int = 0

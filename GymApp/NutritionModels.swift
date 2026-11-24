@@ -151,6 +151,10 @@ enum Meal: String, CaseIterable, Identifiable, Codable {
 
 @Model
 final class FoodLog {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var date: Date = Date.now
     var mealRaw: String = Meal.lunch.rawValue
     var foodID: String = ""
@@ -202,6 +206,10 @@ final class FoodLog {
 /// Alimentos usados, favoritos, vindos da internet ou criados pelo usuário.
 @Model
 final class SavedFood {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var foodID: String = ""
     var data: Data = Data()
     var favorite: Bool = false
@@ -221,6 +229,10 @@ final class SavedFood {
 
 @Model
 final class WaterLog {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var date: Date = Date.now
     var ml: Double = 250
     init(date: Date = .now, ml: Double) { self.date = date; self.ml = ml }

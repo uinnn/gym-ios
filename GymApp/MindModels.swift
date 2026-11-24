@@ -68,6 +68,10 @@ enum Mood {
 
 @Model
 final class MoodEntry {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var date: Date = Date.now
     var mood: Int = 3          // 1–5
     var energy: Int = 3        // 1–5
@@ -88,6 +92,10 @@ final class MoodEntry {
 
 @Model
 final class SleepEntry {
+    // Sincronização com o site (vazio/0 = nunca enviado)
+    var syncID: String = ""
+    var syncUpdated: Double = 0
+    var syncSent: Double = 0
     var bedtime: Date = Date.now
     var wake: Date = Date.now
     var quality: Int = 3       // 1–5

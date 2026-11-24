@@ -135,7 +135,7 @@ enum NutrientID: String, CaseIterable, Identifiable {
 
     func value(_ n: Nutrients, _ m: Micros, _ e: [String: Double] = [:]) -> Double {
         if isExtra { return e[rawValue] ?? 0 }
-        switch self {
+        return switch self {
         case .protein: n.protein
         case .carbs: n.carbs
         case .fiber: n.fiber

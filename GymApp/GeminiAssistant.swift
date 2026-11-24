@@ -36,19 +36,20 @@ enum Gemini {
         set { SecureStore.set("gemini.key", newValue?.trimmingCharacters(in: .whitespacesAndNewlines)) }
     }
     static var model: String {
-        get { UserDefaults.standard.string(forKey: "gemini.model").flatMap { $0.isEmpty ? nil : $0 } ?? "gemini-2.5-flash" }
+        get { UserDefaults.standard.string(forKey: "gemini.model").flatMap { $0.isEmpty ? nil : $0 } ?? "gemini-flash-latest" }
         set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespaces), forKey: "gemini.model") }
     }
     static var isConfigured: Bool { !(apiKey ?? "").isEmpty }
 
     enum Failure: LocalizedError {
-        case noKey, badKey, quota, network, invalid(String)
+        case noKey, badKey, quota, network, modelNotFound, invalid(String)
         var errorDescription: String? {
             switch self {
             case .noKey: "Configure sua chave do Gemini primeiro."
             case .badKey: "Chave do Gemini inválida ou sem permissão. Confira em Ajustes do Assistente."
             case .quota: "Limite gratuito do Gemini atingido. Espere um pouco (o limite renova por minuto e por dia)."
             case .network: "Sem conexão com o Gemini. As regras locais continuam funcionando."
+            case .modelNotFound: "Modelo não encontrado. Toque em \"Buscar modelos disponíveis\"."
             case .invalid(let s): "O Gemini respondeu algo inesperado: \(s)"
             }
         }
@@ -126,6 +127,49 @@ enum Gemini {
     """
 
     static func ask(_ text: String, image: UIImage?, context: String) async throws -> Result {
+        do {
+            return try await send(text, image: image, context: context)
+        } catch Failure.modelNotFound {
+            // O modelo salvo saiu do ar: pergunta ao Google quais existem e tenta de novo com o melhor.
+            guard let best = try await availableModels().first else { throw Failure.invalid("nenhum modelo disponível para esta chave") }
+            model = best
+            return try await send(text, image: image, context: context)
+        }
+    }
+
+    /// Modelos que aceitam generateContent, do mais indicado (Flash mais novo) para o menos.
+    static func availableModels() async throws -> [String] {
+        guard let key = apiKey, !key.isEmpty else { throw Failure.noKey }
+        var req = URLRequest(url: URL(string: "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200")!)
+        req.setValue(key, forHTTPHeaderField: "x-goog-api-key")
+        req.timeoutInterval = 20
+        let (data, resp): (Data, URLResponse)
+        do { (data, resp) = try await URLSession.shared.data(for: req) } catch { throw Failure.network }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        if code == 400 || code == 401 || code == 403 { throw Failure.badKey }
+        guard code == 200, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = obj["models"] as? [[String: Any]] else { throw Failure.invalid("lista de modelos, código \(code)") }
+        let names = list.compactMap { m -> String? in
+            guard let n = m["name"] as? String,
+                  (m["supportedGenerationMethods"] as? [String])?.contains("generateContent") == true else { return nil }
+            return n.replacingOccurrences(of: "models/", with: "")
+        }
+        let bad = ["embedding", "image", "tts", "audio", "live", "vision", "aqa", "imagen", "veo", "thinking", "exp", "preview", "learnlm", "gemma"]
+        func score(_ n: String) -> Double {
+            var s = 0.0
+            if n.contains("flash") { s += 100 }
+            if n.contains("lite") { s -= 30 }
+            if n.contains("pro") { s += 20 }
+            if n.hasSuffix("latest") { s += 15 }
+            if bad.contains(where: n.contains) { s -= 200 }
+            // versão (ex.: gemini-3.0-flash → 3.0)
+            if let r = n.range(of: #"\d+(\.\d+)?"#, options: .regularExpression), let v = Double(n[r]) { s += v * 10 }
+            return s
+        }
+        return names.filter { $0.hasPrefix("gemini") }.sorted { score($0) > score($1) }
+    }
+
+    private static func send(_ text: String, image: UIImage?, context: String) async throws -> Result {
         guard let key = apiKey, !key.isEmpty else { throw Failure.noKey }
         var parts: [[String: Any]] = [["text": "DADOS DO USUÁRIO:\n\(context)\n\nMENSAGEM:\n\(text.isEmpty ? "(veja a foto)" : text)"]]
         if let image, let jpg = image.downscaled(maxSide: 1024).jpegData(compressionQuality: 0.7) {
@@ -136,7 +180,7 @@ enum Gemini {
             "contents": [["role": "user", "parts": parts]],
             "generationConfig": ["responseMimeType": "application/json", "responseSchema": schema, "temperature": 0.2],
         ]
-        let model = model.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "gemini-2.5-flash"
+        let model = model.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "gemini-flash-latest"
         var req = URLRequest(url: URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent")!)
         req.httpMethod = "POST"
         req.timeoutInterval = 45
@@ -147,6 +191,7 @@ enum Gemini {
         do { (data, resp) = try await URLSession.shared.data(for: req) } catch { throw Failure.network }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if code == 429 { throw Failure.quota }
+        if code == 404 { throw Failure.modelNotFound }
         if code == 400 || code == 401 || code == 403 {
             let msg = String(data: data, encoding: .utf8) ?? ""
             if msg.contains("API_KEY") || msg.contains("API key") || code != 400 { throw Failure.badKey }
@@ -275,12 +320,14 @@ struct GeminiSettingsView: View {
     @State private var testing = false
     @State private var status: String?
     @State private var ok = false
+    @State private var models: [String] = []
+    @State private var loadingModels = false
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    SecureField("Cole aqui a chave (começa com AIza…)", text: $key)
+                    SecureField("Cole aqui a chave", text: $key)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                     Button {
                         if let s = UIPasteboard.general.string { key = s.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -313,9 +360,27 @@ struct GeminiSettingsView: View {
                 }
                 Section {
                     TextField("Modelo", text: $model).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Button("Usar o padrão (gemini-2.5-flash)") { model = "gemini-2.5-flash" }
+                    Button {
+                        Task { await loadModels() }
+                    } label: {
+                        HStack {
+                            Label("Buscar modelos disponíveis", systemImage: "arrow.clockwise")
+                            Spacer()
+                            if loadingModels { ProgressView() }
+                        }
+                    }
+                    .disabled(key.isEmpty || loadingModels)
+                    ForEach(models.prefix(8), id: \.self) { m in
+                        Button { model = m } label: {
+                            HStack {
+                                Text(m).foregroundStyle(.primary)
+                                Spacer()
+                                if m == model { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                            }
+                        }
+                    }
                 } header: { Text("Modelo") } footer: {
-                    Text("Se o Google lançar um modelo novo ou desativar este, troque o nome aqui (veja a lista em ai.google.dev).")
+                    Text("O app escolhe sozinho um modelo disponível se o salvo sair do ar. Prefira os \"flash\": rápidos e com limite gratuito maior.")
                 }
                 Section {
                     Link(destination: URL(string: "https://aistudio.google.com/apikey")!) {
@@ -336,6 +401,21 @@ struct GeminiSettingsView: View {
         Gemini.model = model
     }
 
+    private func loadModels() async {
+        save()
+        loadingModels = true
+        defer { loadingModels = false }
+        do {
+            models = try await Gemini.availableModels()
+            if !models.contains(model), let first = models.first { model = first; Gemini.model = first }
+            ok = !models.isEmpty
+            status = models.isEmpty ? "Nenhum modelo disponível para esta chave." : "\(models.count) modelos encontrados."
+        } catch {
+            ok = false
+            status = error.localizedDescription
+        }
+    }
+
     private func test() async {
         save()
         testing = true
@@ -343,6 +423,7 @@ struct GeminiSettingsView: View {
         do {
             let r = try await Gemini.ask("Responda apenas: ok", image: nil, context: "teste de conexão")
             ok = true
+            model = Gemini.model
             status = "Funcionando! (\(Gemini.model)\(r.reply.map { ": \($0.prefix(40))" } ?? ""))"
         } catch {
             ok = false

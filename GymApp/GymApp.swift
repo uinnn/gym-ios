@@ -57,6 +57,8 @@ struct RootView: View {
         }
         .tint(Theme.accent)
         .preferredColorScheme(store.appearance.scheme)
+        .fontDesign(store.font.design)
+        .modifier(TextSizeModifier(size: store.textSize.size))
         .overlay { HubOrb() }
         .overlay(alignment: .top) { toastView }
         .sensoryFeedback(.success, trigger: scanner.lastStable) { _, _ in store.haptics }
@@ -224,5 +226,13 @@ struct BodyView: View {
                 .background(.bar)
             }
         }
+    }
+}
+
+/// Tamanho de texto escolhido no tema (ou o do sistema).
+struct TextSizeModifier: ViewModifier {
+    let size: DynamicTypeSize?
+    func body(content: Content) -> some View {
+        if let size { content.dynamicTypeSize(size) } else { content }
     }
 }

@@ -9,23 +9,84 @@ struct AnimatedBackground: View {
 
     var body: some View {
         ZStack {
-            base
-            switch store.background {
-            case .blobs: BlobsBackground(animated: store.animations)
-            case .aurora: AuroraBackground(animated: store.animations)
-            case .particles: ParticlesBackground(animated: store.animations)
-            case .gradient:
-                LinearGradient(colors: [Theme.accent.opacity(0.28), Theme.accent2.opacity(0.18), .clear],
-                               startPoint: .top, endPoint: .bottom)
-            case .solid: EmptyView()
+            Theme.base(scheme)
+            Group {
+                switch store.background {
+                case .blobs: BlobsBackground(animated: store.animations)
+                case .aurora: AuroraBackground(animated: store.animations)
+                case .particles: ParticlesBackground(animated: store.animations)
+                case .gradient:
+                    LinearGradient(colors: [Theme.accent.opacity(0.24), Theme.accent2.opacity(0.14), .clear],
+                                   startPoint: .top, endPoint: .center)
+                case .spotlight: SpotlightBackground()
+                case .dots: DotsBackground()
+                case .waves: WavesBackground(animated: store.animations)
+                case .solid: EmptyView()
+                }
             }
+            .opacity(store.backgroundIntensity)
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.6), value: store.paletteID)
     }
+}
 
-    private var base: Color {
-        store.appearance == .amoled && scheme == .dark ? .black : Color(.systemGroupedBackground)
+/// Brilho suave no topo: limpo e sem distrair.
+private struct SpotlightBackground: View {
+    var body: some View {
+        GeometryReader { g in
+            ZStack {
+                RadialGradient(colors: [Theme.accent.opacity(0.22), .clear], center: .init(x: 0.15, y: 0),
+                               startRadius: 0, endRadius: g.size.width * 0.9)
+                RadialGradient(colors: [Theme.accent2.opacity(0.14), .clear], center: .init(x: 0.95, y: 0.05),
+                               startRadius: 0, endRadius: g.size.width * 0.7)
+            }
+        }
+    }
+}
+
+private struct DotsBackground: View {
+    var body: some View {
+        Canvas { ctx, size in
+            let step: CGFloat = 22
+            var y: CGFloat = 0
+            while y < size.height {
+                var x: CGFloat = (Int(y / step) % 2 == 0) ? 0 : step / 2
+                let fade = max(0.0, 1 - Double(y / size.height) * 1.3)
+                while x < size.width {
+                    ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 2.2, height: 2.2)),
+                             with: .color(Theme.accent.opacity(0.35 * fade)))
+                    x += step
+                }
+                y += step
+            }
+        }
+        .overlay(LinearGradient(colors: [Theme.accent.opacity(0.10), .clear], startPoint: .top, endPoint: .center))
+    }
+}
+
+private struct WavesBackground: View {
+    let animated: Bool
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !animated)) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            Canvas { ctx, size in
+                for i in 0..<3 {
+                    var p = Path()
+                    let base = size.height * (0.12 + Double(i) * 0.07)
+                    let amp = 18.0 + Double(i) * 8
+                    p.move(to: CGPoint(x: 0, y: 0))
+                    p.addLine(to: CGPoint(x: 0, y: base))
+                    for x in stride(from: 0.0, through: size.width, by: 6) {
+                        let y = base + sin(x / size.width * .pi * 2 + t * (0.4 + Double(i) * 0.15) + Double(i)) * amp
+                        p.addLine(to: CGPoint(x: x, y: y))
+                    }
+                    p.addLine(to: CGPoint(x: size.width, y: 0))
+                    p.closeSubpath()
+                    ctx.fill(p, with: .color((i == 1 ? Theme.accent2 : Theme.accent).opacity(0.10)))
+                }
+            }
+        }
     }
 }
 
@@ -35,11 +96,11 @@ private struct BlobsBackground: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(Theme.accent.opacity(0.28)).frame(width: 340).blur(radius: 90)
+            Circle().fill(Theme.accent.opacity(0.22)).frame(width: 340).blur(radius: 90)
                 .offset(x: move ? -120 : 80, y: move ? -260 : -170)
-            Circle().fill(Theme.accent2.opacity(0.24)).frame(width: 300).blur(radius: 90)
+            Circle().fill(Theme.accent2.opacity(0.18)).frame(width: 300).blur(radius: 90)
                 .offset(x: move ? 140 : -60, y: move ? 120 : 280)
-            Circle().fill(Theme.accent.opacity(0.14)).frame(width: 220).blur(radius: 70)
+            Circle().fill(Theme.accent.opacity(0.10)).frame(width: 220).blur(radius: 70)
                 .offset(x: move ? 60 : -140, y: move ? 420 : 40)
         }
         .onAppear {
@@ -56,7 +117,7 @@ private struct AuroraBackground: View {
     var body: some View {
         AngularGradient(colors: [Theme.accent, Theme.accent2, Theme.accent.opacity(0.4), Theme.accent2, Theme.accent],
                         center: .center)
-            .opacity(0.35)
+            .opacity(0.30)
             .frame(width: 900, height: 900)
             .blur(radius: 120)
             .rotationEffect(.degrees(spin ? 360 : 0))
@@ -85,35 +146,48 @@ private struct ParticlesBackground: View {
                     let x = s.x * size.width + sin(t * 0.6 + Double(i)) * 18
                     let rect = CGRect(x: x, y: y, width: s.size, height: s.size)
                     ctx.fill(Path(ellipseIn: rect),
-                             with: .color((i.isMultiple(of: 2) ? Theme.accent : Theme.accent2).opacity(0.35)))
+                             with: .color((i.isMultiple(of: 2) ? Theme.accent : Theme.accent2).opacity(0.30)))
                 }
             }
             .blur(radius: 1.5)
         }
-        .background(LinearGradient(colors: [Theme.accent.opacity(0.12), .clear], startPoint: .top, endPoint: .bottom))
+        .background(LinearGradient(colors: [Theme.accent.opacity(0.10), .clear], startPoint: .top, endPoint: .bottom))
     }
 }
 
 // MARK: - Cartões
 
+/// Cartão base de todo o app. Estilo, cantos, espaçamento, borda e sombra vêm do tema.
 struct Card<Content: View>: View {
     @ViewBuilder var content: Content
-    private var style: CardStyle { ThemeStore.shared.card }
+    @Environment(\.colorScheme) private var scheme
+    private var store: ThemeStore { ThemeStore.shared }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        let style = store.card
+        let shape = RoundedRectangle(cornerRadius: store.cornerRadius, style: .continuous)
+        let dark = scheme == .dark
         content
-            .padding(16)
+            .padding(style == .minimal ? store.density.padding * 0.75 : store.density.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 switch style {
                 case .glass: shape.fill(.ultraThinMaterial)
-                case .solid: shape.fill(Color(.secondarySystemGroupedBackground))
-                case .outline: shape.fill(.clear)
+                case .solid, .elevated: shape.fill(Theme.surface(scheme))
+                case .tinted: shape.fill(Theme.surface(scheme)).overlay(shape.fill(Theme.accent.opacity(dark ? 0.10 : 0.07)))
+                case .outline: shape.fill(Theme.surface(scheme).opacity(0.35))
+                case .minimal: shape.fill(Color.primary.opacity(dark ? 0.04 : 0.025))
                 }
             }
-            .overlay(shape.strokeBorder(style == .outline ? Theme.accent.opacity(0.5) : .white.opacity(0.1),
-                                        lineWidth: style == .outline ? 1.5 : 1))
+            .overlay {
+                if style == .outline {
+                    shape.strokeBorder(Theme.accent.opacity(0.55), lineWidth: 1.2)
+                } else if store.borders && style != .minimal {
+                    shape.strokeBorder(Color.primary.opacity(dark ? 0.08 : 0.06), lineWidth: 0.8)
+                }
+            }
+            .shadow(color: .black.opacity(store.shadows && style == .elevated ? (dark ? 0.35 : 0.07) : 0),
+                    radius: style == .elevated ? 14 : 0, y: style == .elevated ? 6 : 0)
     }
 }
 
@@ -178,23 +252,23 @@ struct MetricTile: View {
 
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
                     Image(systemName: icon)
-                        .font(.subheadline.bold())
+                        .font(.caption.bold())
                         .foregroundStyle(tint)
-                        .frame(width: 30, height: 30)
-                        .background(tint.opacity(0.15), in: Circle())
-                    Spacer()
+                        .frame(width: 24, height: 24)
+                        .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 0)
                 }
-                Text(title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text(value).font(.title2.bold()).contentTransition(.numericText())
+                    Text(value).font(.title2.weight(.bold)).monospacedDigit().contentTransition(.numericText())
                         .minimumScaleFactor(0.6).lineLimit(1)
                     Text(unit).font(.caption).foregroundStyle(.secondary)
                 }
                 if let caption {
-                    Text(caption).font(.caption2.bold()).foregroundStyle(tint).lineLimit(1)
+                    Text(caption).font(.caption2.weight(.semibold)).foregroundStyle(tint).lineLimit(1)
                 }
                 if let progress { ProgressBar(progress: progress, tint: tint, height: 4) }
             }
@@ -260,18 +334,30 @@ struct RangeBar: View {
     }
 }
 
-/// Título de seção.
+/// Título de seção (o estilo vem do tema: negrito, discreto ou com barra).
 struct SectionHeader: View {
     let title: String
     var icon: String? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
-            if let icon { Image(systemName: icon).foregroundStyle(Theme.accent) }
-            Text(title).font(.title3.bold())
+        HStack(spacing: 8) {
+            switch ThemeStore.shared.header {
+            case .bold:
+                if let icon { Image(systemName: icon).foregroundStyle(Theme.accent) }
+                Text(title).font(.title3.bold())
+            case .caps:
+                if let icon { Image(systemName: icon).font(.caption.bold()).foregroundStyle(Theme.accent) }
+                Text(title.uppercased()).font(.footnote.weight(.semibold)).tracking(0.8).foregroundStyle(.secondary)
+            case .bar:
+                Capsule().fill(Theme.gradient).frame(width: 4, height: 18)
+                Text(title).font(.headline)
+                if let icon { Image(systemName: icon).font(.subheadline).foregroundStyle(.secondary) }
+            }
             Spacer()
         }
-        .padding(.top, 6)
+        .padding(.top, 8)
+        .padding(.horizontal, 2)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 

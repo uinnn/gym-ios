@@ -73,12 +73,16 @@ private struct WavesBackground: View {
             Canvas { ctx, size in
                 for i in 0..<3 {
                     var p = Path()
-                    let base = size.height * (0.12 + Double(i) * 0.07)
+                    let base: Double = Double(size.height) * (0.12 + Double(i) * 0.07)
                     let amp = 18.0 + Double(i) * 8
                     p.move(to: CGPoint(x: 0, y: 0))
                     p.addLine(to: CGPoint(x: 0, y: base))
-                    for x in stride(from: 0.0, through: size.width, by: 6) {
-                        let y = base + sin(x / size.width * .pi * 2 + t * (0.4 + Double(i) * 0.15) + Double(i)) * amp
+                    let w = Double(size.width)
+                    let speed: Double = 0.4 + Double(i) * 0.15
+                    let shift: Double = t * speed + Double(i)
+                    for x in stride(from: 0.0, through: w, by: 6) {
+                        let angle: Double = x / w * Double.pi * 2 + shift
+                        let y: Double = base + sin(angle) * amp
                         p.addLine(to: CGPoint(x: x, y: y))
                     }
                     p.addLine(to: CGPoint(x: size.width, y: 0))

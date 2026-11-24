@@ -46,6 +46,7 @@ struct WorkoutsView: View {
                         if let next = nextRoutine, running == nil { nextCard(next).appear(0.1) }
                         quickStart.appear(0.12)
                         CardioCard().appear(0.14)
+                        StretchCard().appear(0.15)
                         PeriodizationCard(sessions: finished).appear(0.16)
                         routinesSection
                         if !finished.isEmpty { historySection }

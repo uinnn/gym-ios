@@ -8,6 +8,8 @@ import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, onSnapshot, doc,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
+import { initEdit, addBtn, rowActions, fab } from "./edit.js";
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
@@ -27,6 +29,8 @@ function applyTheme() {
   s.setProperty("--brand", a); s.setProperty("--brand2", b); s.setProperty("--brand3", c);
 }
 applyTheme();
+const editCtx = { db, auth, store: null, summary: () => summary, esc: (s) => esc(s), nf: (v, d) => nf(v, d) };
+initEdit(editCtx);
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
 
 // ================================================================ utilidades
@@ -59,6 +63,8 @@ const exName = (id) => summary?.exercises?.[id]?.n || EXFILE[id] || id;
 const COLS = ["profile", "weights", "measurements", "foods", "water", "savedFoods", "workouts", "routines", "cardio",
   "moods", "sleep", "fasting", "practices", "gratitude", "habits", "habitLogs"];
 const store = Object.fromEntries(COLS.map((c) => [c, new Map()]));
+setTimeout(() => initEditStore(), 0);
+function initEditStore() { editCtx.store = store; }
 let summary = null;
 let unsubs = [];
 let lastServer = 0;
@@ -194,6 +200,14 @@ const noTargets = `<div class="msg info">As metas vêm do iPhone. Abra o app com
 // ================================================================ telas
 const ROUTES = [["painel", "Painel", "◉"], ["corpo", "Corpo", "⚖︎"], ["alimentacao", "Alimentação", "🍽"],
   ["treinos", "Treinos", "🏋"], ["mente", "Mente", "☾"], ["conta", "Conta", "⚙︎"]];
+const ACTIONS = {
+  painel: [["weight", "Pesagem"], ["food", "Alimento"], ["water", "Água"], ["workout", "Treino"], ["mood", "Humor"]].map(([k, l]) => addBtn(k, l)).join(""),
+  corpo: [["weight", "Pesagem"], ["measure", "Medidas"], ["profile", "Perfil e metas"]].map(([k, l]) => addBtn(k, l)).join(""),
+  alimentacao: [["food", "Alimento"], ["water", "Água"]].map(([k, l]) => addBtn(k, l)).join("")
+    + [250, 500].map((m) => `<button class="btn sm" data-act="water" data-ml="${m}">💧 +${m} ml</button>`).join(""),
+  treinos: [["workout", "Treino"], ["cardio", "Cardio"]].map(([k, l]) => addBtn(k, l)).join(""),
+  mente: [["mood", "Humor"], ["sleep", "Sono"], ["gratitude", "Gratidão"]].map(([k, l]) => addBtn(k, l)).join(""),
+};
 let foodDay = day(Date.now());
 let weightRange = 90;
 let microGroup = "Vitaminas";
@@ -212,9 +226,11 @@ function shell(content, title, sub = "") {
       <div class="top reveal"><div><span class="eyebrow">${esc(summary?.profileName || "Gym")}</span><h1 class="display" style="margin-top:12px">${title}</h1>${sub ? `<div class="sub">${sub}</div>` : ""}</div>
         <span class="badge">${summary?.updated ? `<span class="live"></span>iPhone ${rel(summary.updated)}` : "Aguardando o iPhone"}</span></div>
       ${lastError ? `<div class="msg err">${esc(lastError)}</div>` : ""}
+      ${ACTIONS[page()] ? `<div class="chips" style="margin:-8px 0 18px">${ACTIONS[page()]}</div>` : ""}
       ${content}
     </main>
     <nav class="mobilebar glass">${nav()}</nav>
+    ${fab()}
   </div>`;
 }
 
@@ -312,15 +328,15 @@ function viewCorpo() {
       kpi("◆", esc(m.title), nf(m.value, Math.min(m.digits ?? 1, 2)), esc(m.unit), m.status ? `<span class="badge brand">${esc(m.status)}</span>` : "")).join("")}</div>`).join("")
       || `${section("Métricas")}<div class="card empty">As métricas aparecem quando o iPhone sincronizar.</div>`}
     <div class="grid g2" style="margin-top:16px">
-      <div class="card">${head("Pesagens", `<span class="tiny muted">${ws.length} no total</span>`)}<div class="scroll"><table><thead><tr><th>Data</th><th>Peso</th><th>Δ</th><th>Obs.</th></tr></thead><tbody>
+      <div class="card">${head("Pesagens", `<span class="tiny muted">${ws.length} no total</span>`)}<div class="scroll"><table><thead><tr><th>Data</th><th>Peso</th><th>Δ</th><th>Obs.</th><th></th></tr></thead><tbody>
         ${rows.map((w, i) => { const prev = rows[i + 1]; const d = prev ? w.kg - prev.kg : null;
-          return `<tr><td>${fmtDate(w.date, { day: "2-digit", month: "short", year: "2-digit" })} <span class="subtle tiny">${fmtTime(w.date)}</span></td><td class="num"><b>${nf(w.kg, 2)}</b></td><td class="num ${d == null ? "" : d <= 0 ? "good" : "warn"}">${d == null ? "" : (d > 0 ? "+" : "") + nf(d, 2)}</td><td class="muted small">${esc(w.note || "")}</td></tr>`; }).join("") || `<tr><td colspan="4" class="empty">Sem pesagens.</td></tr>`}
+          return `<tr><td>${fmtDate(w.date, { day: "2-digit", month: "short", year: "2-digit" })} <span class="subtle tiny">${fmtTime(w.date)}</span></td><td class="num"><b>${nf(w.kg, 2)}</b></td><td class="num ${d == null ? "" : d <= 0 ? "good" : "warn"}">${d == null ? "" : (d > 0 ? "+" : "") + nf(d, 2)}</td><td class="muted small">${esc(w.note || "")}</td><td>${rowActions("weight", "weights", w.id)}</td></tr>`; }).join("") || `<tr><td colspan="5" class="empty">Sem pesagens.</td></tr>`}
       </tbody></table></div></div>
       <div class="card">${head("Medidas (cm)")}${ms.length ? `<div class="scroll"><table><thead><tr><th>Parte</th><th>Última</th><th>Primeira</th><th>Δ</th></tr></thead><tbody>
         ${PARTS.map(([k, l]) => { const v = ms.filter((m) => m[k] != null); if (!v.length) return "";
           const a = v[0][k], b = v.at(-1)[k];
           return `<tr><td>${l}</td><td class="num"><b>${nf(b, 1)}</b></td><td class="num muted">${nf(a, 1)}</td><td class="num">${v.length > 1 ? (b - a > 0 ? "+" : "") + nf(b - a, 1) : ""}</td></tr>`; }).join("")}
-      </tbody></table></div><div class="tiny subtle">${ms.length} medição(ões); última em ${fmtDate(ms.at(-1).date, { day: "2-digit", month: "long" })}.</div>` : `<div class="empty">Sem medidas registradas.</div>`}</div>
+      </tbody></table></div><div class="list" style="margin-top:10px">${[...ms].reverse().slice(0, 6).map((m) => `<div class="item"><div class="grow"><div class="title small">${fmtDate(m.date, { day: "2-digit", month: "long", year: "numeric" })}</div><div class="meta">${PARTS.filter(([k]) => m[k] != null).map(([k, l]) => `${l} ${nf(m[k], 1)}`).join(" · ")}</div></div>${rowActions("measure", "measurements", m.id)}</div>`).join("")}</div>` : `<div class="empty">Sem medidas registradas.</div>`}</div>
     </div>`, "Corpo", `${ws.length} pesagens · ${ms.length} medições`);
 }
 
@@ -364,12 +380,12 @@ function viewAlimentacao() {
         const k = total(f, "kcal");
         return `<div style="margin-bottom:6px"><div class="item" style="border:0;padding-bottom:4px"><div class="avatar">${MEAL_ICON[id] || "🍽"}</div><div class="grow"><div class="title">${esc(label)}</div>
           ${goal ? bar(k / (goal * share)) : ""}</div><b class="num">${nf(k, 0)}${goal ? `<span class="tiny subtle"> / ${nf(goal * share, 0)}</span>` : ""}</b></div>
-          ${f.map((x) => `<div class="item" style="padding-left:50px"><div class="grow"><div class="title" style="font-weight:500">${esc(x.name)}</div><div class="meta num">${nf(x.grams, 0)} g · P ${nf(nv(x, "protein"), 0)} · C ${nf(nv(x, "carbs"), 0)} · G ${nf(nv(x, "fat"), 0)}</div></div><span class="num">${nf(nv(x, "kcal"), 0)}</span></div>`).join("")}</div>`;
+          ${f.map((x) => `<div class="item" style="padding-left:50px"><div class="grow"><div class="title" style="font-weight:500">${esc(x.name)}</div><div class="meta num">${nf(x.grams, 0)} g · P ${nf(nv(x, "protein"), 0)} · C ${nf(nv(x, "carbs"), 0)} · G ${nf(nv(x, "fat"), 0)}</div></div><span class="num">${nf(nv(x, "kcal"), 0)}</span>${rowActions("food", "foods", x.id)}</div>`).join("")}</div>`;
       }).join("")}</div>
       <div class="grid">
         <div class="card">${head("Calorias · 14 dias", goal ? `<span class="tiny muted">verde = meta</span>` : "")}${barChart(days.map((d) => ({ y: total(foodsOn(d), "kcal"), label: fmtDate(d), short: new Date(d).getDate(),
           color: d === day(foodDay) ? "var(--brand3)" : null })), { goal: targets()?.kcal })}</div>
-        <div class="card">${head("Água do dia")}${waterDay.length ? `<div class="chips">${waterDay.map((w) => `<span class="chip">${fmtTime(w.date)} · ${nf(w.ml, 0)} ml</span>`).join("")}</div>` : `<div class="empty">Sem água registrada.</div>`}</div>
+        <div class="card">${head("Água do dia")}${waterDay.length ? `<div class="list">${waterDay.map((w) => `<div class="item"><div class="avatar">💧</div><div class="grow"><b class="num">${nf(w.ml, 0)} ml</b> <span class="muted small">${fmtTime(w.date)}</span></div>${rowActions("water", "water", w.id)}</div>`).join("")}</div>` : `<div class="empty">Sem água registrada.</div>`}</div>
         <div class="card">${head("Mais comidos · 30 dias")}<div class="chips">${top.map(([k, v]) => `<span class="chip">${esc(k)} ×${v}</span>`).join("") || `<span class="muted small">—</span>`}</div></div>
       </div>
     </div>
@@ -424,14 +440,14 @@ function viewTreinos() {
         ${ss.slice(0, 50).map((s) => { const x = sessionStats(s);
           return `<details class="session"><summary class="item"><div class="avatar">🏋</div><div class="grow"><div class="title">${esc(s.name)}</div>
             <div class="meta">${fmtDate(s.start, { weekday: "short", day: "2-digit", month: "short" })} · ${Math.round(x.minutes)} min · ${x.sets} séries · ${nf(x.kcal, 0)} kcal</div></div>
-            <b class="num">${nf(x.volume, 0)} kg</b></summary>
+            <b class="num">${nf(x.volume, 0)} kg</b>${rowActions("workout", "workouts", s.id)}</summary>
             <div class="sets">${(s.exercises || []).filter((e) => (e.sets || []).some((q) => q.done)).map((e) => `<div><b>${esc(exName(e.exerciseID))}</b>${e.note ? ` <span class="muted small">· ${esc(e.note)}</span>` : ""}
               <div class="chips" style="margin-top:6px">${e.sets.filter((q) => q.done).map((q) => `<span class="chip">${q.kind === "warmup" ? "aq · " : ""}${q.kg ? nf(q.kg, 1) + "kg × " : ""}${esc(q.reps || (q.minutes ? nf(q.minutes, 1) + " min" : ""))}${q.rpe ? " @" + nf(q.rpe, 1) : ""}</span>`).join("")}</div></div>`).join("")}
               ${s.note ? `<div class="muted small">📝 ${esc(s.note)}</div>` : ""}</div></details>`;
         }).join("") || `<div class="empty">Sem treinos sincronizados.</div>`}</div>
       <div class="grid">
         <div class="card">${head("Cardio")}${cardio.slice(0, 12).map((c) => `<div class="item"><div class="avatar">${CARDIO[c.kind]?.[1] || "🏃"}</div><div class="grow"><div class="title">${CARDIO[c.kind]?.[0] || "Cardio"} · ${nf(c.km, 2)} km</div>
-          <div class="meta">${fmtDate(c.start, { weekday: "short", day: "2-digit", month: "short" })} · ${Math.round(c.seconds / 60)} min${pace(c) ? " · " + pace(c) : ""}${c.climbM ? " · ↑" + nf(c.climbM, 0) + " m" : ""}</div></div><b class="num">${nf(c.kcal, 0)} kcal</b></div>`).join("") || `<div class="empty">Sem cardio.</div>`}</div>
+          <div class="meta">${fmtDate(c.start, { weekday: "short", day: "2-digit", month: "short" })} · ${Math.round(c.seconds / 60)} min${pace(c) ? " · " + pace(c) : ""}${c.climbM ? " · ↑" + nf(c.climbM, 0) + " m" : ""}</div></div><b class="num">${nf(c.kcal, 0)} kcal</b>${rowActions("cardio", "cardio", c.id)}</div>`).join("") || `<div class="empty">Sem cardio.</div>`}</div>
         <div class="card">${head("Rotinas")}${routines.map((r) => `<div class="item"><div class="grow"><div class="title">${esc(r.name)}</div><div class="meta">${(r.items || []).map((i) => `${esc(exName(i.exerciseID))} ${i.sets}×${i.repsMin}${i.repsMax !== i.repsMin ? "–" + i.repsMax : ""}`).join(" · ")}</div></div><span class="badge">${(r.items || []).length} ex.</span></div>`).join("") || `<div class="empty">Sem rotinas.</div>`}</div>
         ${st ? `<div class="card">${head("Alongamentos")}<div class="grid g2"><div><div class="tiny subtle">Últimos 7 dias</div><b class="h3 num">${st.weekMinutes} min</b></div><div><div class="tiny subtle">Sequência</div><b class="h3 num">${st.streak} dias</b></div></div>
           ${st.conditions?.length ? `<div class="chips" style="margin-top:12px">${st.conditions.map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>` : ""}
@@ -474,10 +490,11 @@ function viewMente() {
     </div></div></div>` : ""}
     <div class="grid g2" style="margin-top:16px">
       <div class="card">${head("Práticas · 30 dias")}${Object.keys(prBy).length ? Object.entries(prBy).map(([k, v]) => `<div class="macro"><div class="row"><span>${esc(PRACTICE[k] || k)}</span><span class="num">${nf(v, 0)} min</span></div>${bar(v / Math.max(...Object.values(prBy)))}</div>`).join("") : `<div class="empty">Sem práticas.</div>`}</div>
-      <div class="card">${head("Gratidão")}${gr.map((g) => `<div class="item"><div class="avatar">🙏</div><div class="grow"><div class="meta">${fmtDate(g.date, { weekday: "short", day: "2-digit", month: "short" })}</div>${(g.items || []).map((i) => `<div>• ${esc(i)}</div>`).join("")}</div></div>`).join("") || `<div class="empty">Sem registros.</div>`}</div>
+      <div class="card">${head("Gratidão")}${gr.map((g) => `<div class="item"><div class="avatar">🙏</div><div class="grow"><div class="meta">${fmtDate(g.date, { weekday: "short", day: "2-digit", month: "short" })}</div>${(g.items || []).map((i) => `<div>• ${esc(i)}</div>`).join("")}</div>${rowActions("gratitude", "gratitude", g.id)}</div>`).join("") || `<div class="empty">Sem registros.</div>`}</div>
     </div>
-    <div class="card" style="margin-top:16px">${head("Registros de humor")}<div class="scroll"><table><thead><tr><th>Quando</th><th>Humor</th><th>Energia</th><th>Estresse</th><th>Ansiedade</th><th>Nota</th></tr></thead><tbody>
-      ${[...md].reverse().slice(0, 15).map((m) => `<tr><td>${fmtDate(m.date)} <span class="subtle tiny">${fmtTime(m.date)}</span></td><td>${face(m.mood)} ${esc(m.mood)}</td><td class="num">${esc(m.energy)}</td><td class="num">${esc(m.stress)}</td><td class="num">${esc(m.anxiety)}</td><td class="muted small">${esc(m.note || "")}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">Sem registros.</td></tr>`}
+    <div class="card" style="margin-top:16px">${head("Sono recente")}<div class="list">${[...sl].reverse().slice(0, 8).map((s) => `<div class="item"><div class="avatar">☾</div><div class="grow"><div class="title num">${nf(sleepHours(s), 1)} h · qualidade ${esc(s.quality)}/5</div><div class="meta">${fmtDate(s.bedtime, { weekday: "short", day: "2-digit", month: "short" })} ${fmtTime(s.bedtime)} → ${fmtTime(s.wake)}${s.awakenings ? " · " + esc(s.awakenings) + " despertares" : ""}</div></div>${rowActions("sleep", "sleep", s.id)}</div>`).join("") || `<div class="empty">Sem registros.</div>`}</div></div>
+    <div class="card" style="margin-top:16px">${head("Registros de humor")}<div class="scroll"><table><thead><tr><th>Quando</th><th>Humor</th><th>Energia</th><th>Estresse</th><th>Ansiedade</th><th>Nota</th><th></th></tr></thead><tbody>
+      ${[...md].reverse().slice(0, 15).map((m) => `<tr><td>${fmtDate(m.date)} <span class="subtle tiny">${fmtTime(m.date)}</span></td><td>${face(m.mood)} ${esc(m.mood)}</td><td class="num">${esc(m.energy)}</td><td class="num">${esc(m.stress)}</td><td class="num">${esc(m.anxiety)}</td><td class="muted small">${esc(m.note || "")}</td><td>${rowActions("mood", "moods", m.id)}</td></tr>`).join("") || `<tr><td colspan="7" class="empty">Sem registros.</td></tr>`}
     </tbody></table></div></div>`, "Mente", "Humor, sono, práticas e hábitos");
 }
 

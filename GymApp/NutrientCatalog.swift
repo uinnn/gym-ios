@@ -42,6 +42,7 @@ enum NutrientID: String, CaseIterable, Identifiable {
     case fat, saturated, mono, poly, trans, omega3, omega6, cholesterol
     case sodium, potassium, calcium, phosphorus, magnesium, iron, zinc, copper, manganese, selenium
     case vitaminA, b1, b2, b3, b6, b12, folate, vitaminC, vitaminD, vitaminE
+    case vitaminK, b5, biotin, choline, iodine, chromium, molybdenum
 
     var id: String { rawValue }
 
@@ -49,7 +50,7 @@ enum NutrientID: String, CaseIterable, Identifiable {
         switch self {
         case .protein, .carbs, .fiber, .sugar, .addedSugar: .macros
         case .fat, .saturated, .mono, .poly, .trans, .omega3, .omega6, .cholesterol: .fats
-        case .sodium, .potassium, .calcium, .phosphorus, .magnesium, .iron, .zinc, .copper, .manganese, .selenium: .minerals
+        case .sodium, .potassium, .calcium, .phosphorus, .magnesium, .iron, .zinc, .copper, .manganese, .selenium, .iodine, .chromium, .molybdenum: .minerals
         default: .vitamins
         }
     }
@@ -89,13 +90,20 @@ enum NutrientID: String, CaseIterable, Identifiable {
         case .vitaminC: "Vitamina C"
         case .vitaminD: "Vitamina D"
         case .vitaminE: "Vitamina E"
+        case .vitaminK: "Vitamina K"
+        case .b5: "Vitamina B5 (ácido pantotênico)"
+        case .biotin: "Biotina (B7)"
+        case .choline: "Colina"
+        case .iodine: "Iodo"
+        case .chromium: "Cromo"
+        case .molybdenum: "Molibdênio"
         }
     }
 
     var unit: String {
         switch self {
         case .protein, .carbs, .fiber, .sugar, .addedSugar, .fat, .saturated, .mono, .poly, .trans, .omega3, .omega6: "g"
-        case .selenium, .vitaminA, .b12, .folate, .vitaminD: "µg"
+        case .selenium, .vitaminA, .b12, .folate, .vitaminD, .vitaminK, .biotin, .iodine, .chromium, .molybdenum: "µg"
         default: "mg"
         }
     }
@@ -122,7 +130,11 @@ enum NutrientID: String, CaseIterable, Identifiable {
         }
     }
 
-    func value(_ n: Nutrients, _ m: Micros) -> Double {
+    /// Nutrientes guardados à parte (`extras`), para não alterar dados já salvos.
+    var isExtra: Bool { [.vitaminK, .b5, .biotin, .choline, .iodine, .chromium, .molybdenum].contains(self) }
+
+    func value(_ n: Nutrients, _ m: Micros, _ e: [String: Double] = [:]) -> Double {
+        if isExtra { return e[rawValue] ?? 0 }
         switch self {
         case .protein: n.protein
         case .carbs: n.carbs
@@ -157,6 +169,47 @@ enum NutrientID: String, CaseIterable, Identifiable {
         case .vitaminC: n.vitaminC
         case .vitaminD: m.vitaminD
         case .vitaminE: m.vitaminE
+        default: 0
+        }
+    }
+
+    /// Grava um valor (usado no cadastro de alimentos/suplementos).
+    func set(_ v: Double, _ n: inout Nutrients, _ m: inout Micros, _ e: inout [String: Double]) {
+        switch self {
+        case .protein: n.protein = v
+        case .carbs: n.carbs = v
+        case .fiber: n.fiber = v
+        case .sugar: n.sugar = v
+        case .addedSugar: m.addedSugar = v
+        case .fat: n.fat = v
+        case .saturated: n.saturated = v
+        case .mono: m.mono = v
+        case .poly: m.poly = v
+        case .trans: m.trans = v
+        case .omega3: m.omega3 = v
+        case .omega6: m.omega6 = v
+        case .cholesterol: n.cholesterol = v
+        case .sodium: n.sodium = v
+        case .potassium: n.potassium = v
+        case .calcium: n.calcium = v
+        case .phosphorus: m.phosphorus = v
+        case .magnesium: n.magnesium = v
+        case .iron: n.iron = v
+        case .zinc: n.zinc = v
+        case .copper: m.copper = v
+        case .manganese: m.manganese = v
+        case .selenium: m.selenium = v
+        case .vitaminA: m.vitaminA = v
+        case .b1: m.b1 = v
+        case .b2: m.b2 = v
+        case .b3: m.b3 = v
+        case .b6: m.b6 = v
+        case .b12: m.b12 = v
+        case .folate: m.folate = v
+        case .vitaminC: n.vitaminC = v
+        case .vitaminD: m.vitaminD = v
+        case .vitaminE: m.vitaminE = v
+        default: e[rawValue] = v > 0 ? v : nil
         }
     }
 
@@ -197,6 +250,13 @@ enum NutrientID: String, CaseIterable, Identifiable {
         case .vitaminC: return NutrientRef(min: m ? 75 : 60, rec: m ? 90 : 75, max: 2000)
         case .vitaminD: return NutrientRef(min: 10, rec: a > 70 ? 20 : 15, max: 100)
         case .vitaminE: return NutrientRef(min: 12, rec: 15, max: 1000)
+        case .vitaminK: return NutrientRef(min: m ? 90 : 70, rec: m ? 120 : 90)
+        case .b5: return NutrientRef(min: 4, rec: 5)
+        case .biotin: return NutrientRef(min: 25, rec: 30)
+        case .choline: return NutrientRef(min: m ? 400 : 300, rec: m ? 550 : 425, max: 3500)
+        case .iodine: return NutrientRef(min: 95, rec: 150, max: 1100)
+        case .chromium: return NutrientRef(min: m ? 25 : 18, rec: m ? (a > 50 ? 30 : 35) : (a > 50 ? 20 : 25))
+        case .molybdenum: return NutrientRef(min: 34, rec: 45, max: 2000)
         }
     }
 
@@ -418,6 +478,48 @@ enum NutrientID: String, CaseIterable, Identifiable {
             tips: "Um punhado de castanhas por dia ajuda muito.",
             deficiency: "Rara: fraqueza muscular, problemas de visão.",
             excess: "Suplementos acima de 1.000 mg aumentam risco de sangramento.")
+        case .vitaminK: NutrientInfo(
+            function: "Coagulação do sangue e fixação do cálcio nos ossos.",
+            sources: "Couve, espinafre, brócolis, alface, repolho (K1); queijos e fermentados (K2).",
+            tips: "É lipossolúvel: folhas com um fio de azeite. Quem usa anticoagulante deve manter o consumo estável e falar com o médico antes de suplementar.",
+            deficiency: "Sangramentos e hematomas fáceis, ossos mais fracos.",
+            excess: "Sem toxicidade conhecida pela comida; interfere com varfarina.")
+        case .b5: NutrientInfo(
+            function: "Faz parte da coenzima A: produção de energia, hormônios e colesterol.",
+            sources: "Fígado, cogumelos, ovos, abacate, frango, sementes de girassol, iogurte.",
+            tips: "Está presente em quase todos os alimentos; falta é muito rara.",
+            deficiency: "Muito rara: cansaço, formigamento nos pés.",
+            excess: "Doses muito altas de suplemento: diarreia.")
+        case .biotin: NutrientInfo(
+            function: "Metabolismo de gorduras, carboidratos e proteínas; saúde de pele, cabelo e unhas.",
+            sources: "Gema de ovo, fígado, amendoim, amêndoas, sementes, batata-doce.",
+            tips: "Clara crua em excesso bloqueia a biotina. Suplementos altos alteram exames de sangue (tireoide, troponina): avise o laboratório.",
+            deficiency: "Rara: queda de cabelo, unhas frágeis, dermatite.",
+            excess: "Sem toxicidade conhecida, mas atrapalha exames.")
+        case .choline: NutrientInfo(
+            function: "Membranas celulares, memória (acetilcolina), transporte de gordura no fígado.",
+            sources: "Ovos (gema), fígado, carnes, peixes, soja, brócolis, couve-flor.",
+            tips: "2 ovos já dão cerca de 300 mg. Importante na gravidez.",
+            deficiency: "Gordura no fígado, dano muscular.",
+            excess: "Acima de 3,5 g: odor de peixe, pressão baixa, suor.")
+        case .iodine: NutrientInfo(
+            function: "Produção dos hormônios da tireoide, que controlam o metabolismo.",
+            sources: "Sal iodado, peixes e frutos do mar, algas, laticínios, ovos.",
+            tips: "No Brasil o sal é iodado. Quem usa sal rosa/marinho não iodado e come pouco peixe pode ter falta.",
+            deficiency: "Hipotireoidismo, bócio, cansaço, ganho de peso.",
+            excess: "Acima de 1.100 µg (algas, suplementos): pode desregular a tireoide.")
+        case .chromium: NutrientInfo(
+            function: "Ajuda a ação da insulina no controle da glicose.",
+            sources: "Brócolis, carnes, cereais integrais, uva, batata, café.",
+            tips: "Suplementos não mostraram efeito claro em emagrecimento.",
+            deficiency: "Rara: piora do controle de glicose.",
+            excess: "Sem limite definido; doses altas de suplemento podem afetar rins e fígado.")
+        case .molybdenum: NutrientInfo(
+            function: "Ativa enzimas que processam aminoácidos e eliminam toxinas.",
+            sources: "Feijões, lentilha, ervilha, cereais integrais, castanhas, fígado.",
+            tips: "Leguminosas cobrem fácil a necessidade.",
+            deficiency: "Raríssima.",
+            excess: "Acima de 2.000 µg: pode atrapalhar o cobre.")
         }
     }
 }
@@ -428,7 +530,7 @@ extension FoodDatabase {
         let key = "\(id.rawValue)-\(limit)"
         if let hit = TopSourcesCache.shared.get(key) { return hit }
         let list = foods.lazy.filter { $0.category != "Suplementos" }
-            .map { ($0, id.value($0.per100, $0.micros ?? .zero)) }
+            .map { ($0, id.value($0.per100, $0.micros ?? .zero, $0.extras ?? [:])) }
             .filter { $0.1 > 0 }
             .sorted { $0.1 > $1.1 }
             .prefix(limit).map { $0 }

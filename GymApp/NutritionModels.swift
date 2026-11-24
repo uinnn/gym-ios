@@ -65,6 +65,14 @@ extension Sequence where Element == Micros {
     var total: Micros { reduce(.zero, +) }
 }
 
+extension Dictionary where Key == String, Value == Double {
+    func scaled(_ f: Double) -> [String: Double] { mapValues { $0 * f } }
+}
+
+extension Sequence where Element == [String: Double] {
+    var total: [String: Double] { reduce(into: [:]) { acc, d in for (k, v) in d { acc[k, default: 0] += v } } }
+}
+
 /// Um alimento do banco de dados (TACO, Open Food Facts ou criado pelo usuário).
 struct FoodItem: Codable, Hashable, Identifiable {
     var id: String                 // "taco-1", "off-7891000…", "custom-UUID"
@@ -76,6 +84,8 @@ struct FoodItem: Codable, Hashable, Identifiable {
     var servingName: String? = nil
     var micros: Micros? = nil
     var allergens: [String]? = nil
+    /// Vitaminas/minerais adicionais por 100 g (chave = NutrientID.rawValue).
+    var extras: [String: Double]? = nil
 
     var sourceLabel: String {
         if id.hasPrefix("taco") { return "TACO" }
@@ -148,6 +158,13 @@ final class FoodLog {
     var grams: Double = 100
     var nutrients: Nutrients = Nutrients()
     var micros: Micros?
+    var extrasData: Data? = nil
+
+    /// Vitaminas/minerais adicionais (já na quantidade registrada).
+    var extras: [String: Double] {
+        get { extrasData.flatMap { try? JSONDecoder().decode([String: Double].self, from: $0) } ?? [:] }
+        set { extrasData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
+    }
 
     init(date: Date, meal: Meal, food: FoodItem, grams: Double) {
         self.date = date
@@ -157,6 +174,7 @@ final class FoodLog {
         self.grams = grams
         self.nutrients = food.per100.scaled(grams / 100)
         self.micros = food.micros?.scaled(grams / 100)
+        if let e = food.extras, !e.isEmpty { self.extras = e.scaled(grams / 100) }
     }
 
     var meal: Meal { Meal(rawValue: mealRaw) ?? .lunch }
@@ -164,13 +182,15 @@ final class FoodLog {
     /// O alimento equivalente por 100 g (para duplicar, copiar ou editar).
     var asFood: FoodItem {
         let f = 100 / max(grams, 0.1)
-        return FoodItem(id: foodID, name: name, category: "", per100: nutrients.scaled(f), micros: micros?.scaled(f))
+        return FoodItem(id: foodID, name: name, category: "", per100: nutrients.scaled(f), micros: micros?.scaled(f),
+                        extras: extrasData == nil ? nil : extras.scaled(f))
     }
 
     func rescale(to newGrams: Double) {
         let f = newGrams / max(grams, 0.1)
         nutrients = nutrients.scaled(f)
         micros = micros?.scaled(f)
+        if extrasData != nil { extras = extras.scaled(f) }
         grams = newGrams
     }
 }

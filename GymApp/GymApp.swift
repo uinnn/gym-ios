@@ -57,6 +57,7 @@ struct RootView: View {
         }
         .tint(Theme.accent)
         .preferredColorScheme(store.appearance.scheme)
+        .overlay { HubOrb() }
         .overlay(alignment: .top) { toastView }
         .sensoryFeedback(.success, trigger: scanner.lastStable) { _, _ in store.haptics }
         .sensoryFeedback(.selection, trigger: tab) { _, _ in store.haptics }
@@ -206,6 +207,11 @@ struct BodyView: View {
                 case .measures: MeasurementsView()
                 case .photos: ProgressPhotosView()
                 case .history: HistoryView()
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink { CompareView(mode: .weights) } label: { Image(systemName: "square.split.2x1") }
                 }
             }
             .safeAreaInset(edge: .top) {

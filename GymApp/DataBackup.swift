@@ -41,6 +41,7 @@ struct Backup: Codable {
     struct FoodLogDTO: Codable {
         var date: Date, mealRaw: String, foodID: String, name: String, grams: Double
         var nutrients: Nutrients, micros: Micros?
+        var extras: [String: Double]? = nil
     }
     struct SavedFoodDTO: Codable {
         var foodID: String, food: FoodItem?, favorite: Bool, useCount: Int, lastUsed: Date, lastGrams: Double, isCustom: Bool
@@ -82,7 +83,7 @@ enum BackupManager {
         }
         b.foodLogs = fetch(ctx, FoodLog.self).map {
             .init(date: $0.date, mealRaw: $0.mealRaw, foodID: $0.foodID, name: $0.name, grams: $0.grams,
-                  nutrients: $0.nutrients, micros: $0.micros)
+                  nutrients: $0.nutrients, micros: $0.micros, extras: $0.extrasData == nil ? nil : $0.extras)
         }
         b.savedFoods = fetch(ctx, SavedFood.self).map {
             .init(foodID: $0.foodID, food: $0.food, favorite: $0.favorite, useCount: $0.useCount, lastUsed: $0.lastUsed,
@@ -175,7 +176,7 @@ enum BackupManager {
             let food = FoodItem(id: f.foodID, name: f.name, category: "", per100: f.nutrients.scaled(100 / max(f.grams, 0.1)),
                                 micros: f.micros?.scaled(100 / max(f.grams, 0.1)))
             let e = FoodLog(date: f.date, meal: Meal(rawValue: f.mealRaw) ?? .lunch, food: food, grams: f.grams)
-            e.nutrients = f.nutrients; e.micros = f.micros
+            e.nutrients = f.nutrients; e.micros = f.micros; e.extras = f.extras ?? [:]
             ctx.insert(e); c.foodLogs += 1
         }
         let s0 = Set(fetch(ctx, SavedFood.self).map(\.foodID))

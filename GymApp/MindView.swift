@@ -79,7 +79,12 @@ struct MindView: View {
             }
             .navigationTitle("Mente")
             .toolbar {
-                Button { sheet = .crisis } label: { Image(systemName: "heart.circle.fill").foregroundStyle(Theme.danger) }
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink { CompareView(mode: .mind) } label: { Image(systemName: "square.split.2x1") }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { sheet = .crisis } label: { Image(systemName: "heart.circle.fill").foregroundStyle(Theme.danger) }
+                }
             }
             .sheet(item: $sheet) { s in sheetView(s) }
         }

@@ -586,6 +586,8 @@ struct InsightsHubCard: View {
             if let g = profiles.first?.goal { CalorieAdjustCard(weights: weights, goal: g) }
             Card {
                 VStack(spacing: 0) {
+                    link("Comparar pesagens, treinos, alimentação e humor", "square.split.2x1") { CompareView() }
+                    Divider().padding(.vertical, 8)
                     link("Resumo semanal", "calendar.badge.clock") { WeeklySummaryView() }
                     Divider().padding(.vertical, 8)
                     link("Recuperação muscular", "figure.cooldown") { RecoveryView() }

@@ -216,7 +216,7 @@ struct FoodAmountSheet: View {
                     }
                     GramsField(grams: $grams, serving: food.servingGrams.map { (food.servingName ?? "porção", $0) })
                 }
-                NutrientsSummary(n: food.per100.scaled(grams / 100), m: food.micros?.scaled(grams / 100))
+                NutrientsSummary(n: food.per100.scaled(grams / 100), m: food.micros?.scaled(grams / 100), e: food.extras?.scaled(grams / 100) ?? [:])
                 Section {
                     Button {
                         toggleFavorite()
@@ -268,15 +268,36 @@ struct CustomFoodSheet: View {
     @State private var name = ""
     @State private var brand = ""
     @State private var serving: Double?
+    @State private var servingName = ""
+    @State private var perServing = false
+    @State private var isSupplement = false
     @State private var n = Nutrients()
+    @State private var m = Micros()
+    @State private var e: [String: Double] = [:]
+    @State private var chosen: [NutrientID] = []
     @State private var allergens: [String] = []
+
+    /// Campos fixos do formulário (os demais são escolhidos pelo usuário).
+    private static let base: Set<NutrientID> = [.protein, .carbs, .sugar, .fat, .saturated, .fiber, .sodium]
+
+    private static let templates: [(String, String, [NutrientID])] = [
+        ("Multivitamínico", "pills.fill", [.vitaminA, .vitaminC, .vitaminD, .vitaminE, .vitaminK, .b1, .b2, .b3, .b5, .b6, .b12,
+                                            .folate, .biotin, .zinc, .selenium, .iodine, .chromium, .magnesium, .calcium, .iron,
+                                            .copper, .manganese, .molybdenum]),
+        ("Vitamina D + K2", "sun.max.fill", [.vitaminD, .vitaminK]),
+        ("Ômega-3", "fish.fill", [.omega3]),
+        ("Ferro / anemia", "drop.fill", [.iron, .folate, .b12, .vitaminC]),
+        ("Magnésio + zinco", "atom", [.magnesium, .zinc, .b6]),
+        ("Cálcio", "figure.walk", [.calcium, .vitaminD]),
+        ("Complexo B", "bolt.fill", [.b1, .b2, .b3, .b5, .b6, .b12, .folate, .biotin]),
+    ]
 
     var body: some View {
         NavigationStack {
             Form {
                 NutritionLabelScanSection { r in
                     withAnimation {
-                        if r.found > 0 { n = r.per100 }
+                        if r.found > 0 { n = r.per100; perServing = false }
                         if let s = r.serving { serving = s }
                         if !r.allergens.isEmpty { allergens = r.allergens }
                     }
@@ -287,12 +308,27 @@ struct CustomFoodSheet: View {
                         Button("Limpar", role: .destructive) { allergens = [] }
                     }
                 }
-                Section("Alimento") {
+                Section {
                     TextField("Nome", text: $name)
                     TextField("Marca (opcional)", text: $brand)
-                    num("Porção (g)", Binding(get: { serving ?? 0 }, set: { serving = $0 > 0 ? $0 : nil }))
+                    Toggle("É um suplemento", isOn: $isSupplement.animation())
+                    num(isSupplement ? "Peso de 1 unidade (g)" : "Porção (g)",
+                        Binding(get: { serving ?? 0 }, set: { serving = $0 > 0 ? $0 : nil }))
+                    TextField(isSupplement ? "Nome da unidade (cápsula, comprimido, scoop…)" : "Nome da porção (opcional)",
+                              text: $servingName)
+                    Picker("Valores informados", selection: $perServing.animation()) {
+                        Text("Por 100 g").tag(false)
+                        Text(isSupplement ? "Por unidade" : "Por porção").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Alimento")
+                } footer: {
+                    if isSupplement {
+                        Text("Para cápsulas e comprimidos, informe o peso de 1 unidade (se não souber, use 1 g) e preencha os valores por unidade copiando o rótulo.")
+                    }
                 }
-                Section("Por 100 g (veja a tabela do rótulo)") {
+                Section(perServing ? "Por \(unitLabel) (veja o rótulo)" : "Por 100 g (veja o rótulo)") {
                     num("Calorias (kcal)", $n.kcal)
                     num("Proteína (g)", $n.protein)
                     num("Carboidratos (g)", $n.carbs)
@@ -302,31 +338,94 @@ struct CustomFoodSheet: View {
                     num("Fibras (g)", $n.fiber)
                     num("Sódio (mg)", $n.sodium)
                 }
+                Section {
+                    ForEach(chosen) { id in
+                        num("\(id.title) (\(id.unit))", binding(id))
+                            .swipeActions { Button("Remover", role: .destructive) { remove(id) } }
+                    }
+                    Menu {
+                        Section("Modelos prontos") {
+                            ForEach(Self.templates, id: \.0) { t in
+                                Button { add(t.2) } label: { Label(t.0, systemImage: t.1) }
+                            }
+                        }
+                        ForEach(NutrientGroup.allCases) { g in
+                            let ids = NutrientID.allCases.filter { $0.group == g && !Self.base.contains($0) && !chosen.contains($0) }
+                            if !ids.isEmpty {
+                                Menu {
+                                    ForEach(ids) { id in Button("\(id.title) (\(id.unit))") { add([id]) } }
+                                } label: { Label(g.rawValue, systemImage: g.icon) }
+                            }
+                        }
+                    } label: {
+                        Label("Adicionar vitamina, mineral ou nutriente", systemImage: "plus.circle.fill")
+                    }
+                } header: {
+                    Text("Vitaminas, minerais e outros (\(chosen.count))")
+                } footer: {
+                    Text("Escolha só o que aparece no rótulo. Use os modelos prontos para montar a lista de um multivitamínico de uma vez. Deslize para remover.")
+                }
             }
-            .navigationTitle("Novo alimento")
+            .navigationTitle(isSupplement ? "Novo suplemento" : "Novo alimento")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Salvar") {
-                        let food = FoodItem(id: barcode.map { "custom-bc-\($0)" } ?? "custom-\(UUID().uuidString)", name: name, category: "Meus alimentos",
-                                            brand: brand.isEmpty ? nil : brand, per100: n, servingGrams: serving,
-                                            allergens: allergens.isEmpty ? nil : allergens)
-                        context.insert(SavedFood(food, custom: true))
-                        dismiss()
-                        onCreated(food)
-                    }
-                    .disabled(name.isEmpty || n.kcal <= 0)
+                    Button("Salvar", action: save).disabled(!canSave)
                 }
             }
         }
+    }
+
+    private var unitLabel: String {
+        let nm = servingName.trimmingCharacters(in: .whitespaces)
+        return nm.isEmpty ? (isSupplement ? "unidade" : "porção") : nm
+    }
+
+    private var canSave: Bool {
+        guard !name.isEmpty else { return false }
+        if perServing && (serving ?? 0) <= 0 { return false }
+        return n.kcal > 0 || n.protein > 0 || n.carbs > 0 || n.fat > 0 || chosen.contains { $0.value(n, m, e) > 0 }
+    }
+
+    private func binding(_ id: NutrientID) -> Binding<Double> {
+        Binding(get: { id.value(n, m, e) }, set: { id.set($0, &n, &m, &e) })
+    }
+
+    private func add(_ ids: [NutrientID]) {
+        withAnimation {
+            for id in ids where !chosen.contains(id) && !Self.base.contains(id) { chosen.append(id) }
+            if ids.count > 3 && !isSupplement { isSupplement = true; perServing = true }
+        }
+    }
+
+    private func remove(_ id: NutrientID) {
+        id.set(0, &n, &m, &e)
+        chosen.removeAll { $0 == id }
+    }
+
+    private func save() {
+        // Tudo é guardado por 100 g; valores por porção/unidade são convertidos.
+        let f = perServing ? 100 / max(serving ?? 100, 0.01) : 1
+        let usedMicros = chosen.contains { !$0.isExtra && $0.value(.zero, m) > 0 }
+        let nm = servingName.trimmingCharacters(in: .whitespaces)
+        let food = FoodItem(id: barcode.map { "custom-bc-\($0)" } ?? "custom-\(UUID().uuidString)", name: name,
+                            category: isSupplement ? "Suplementos" : "Meus alimentos",
+                            brand: brand.isEmpty ? nil : brand, per100: n.scaled(f), servingGrams: serving,
+                            servingName: nm.isEmpty ? (isSupplement ? "unidade" : nil) : nm,
+                            micros: usedMicros ? m.scaled(f) : nil,
+                            allergens: allergens.isEmpty ? nil : allergens,
+                            extras: e.isEmpty ? nil : e.scaled(f))
+        context.insert(SavedFood(food, custom: true))
+        dismiss()
+        onCreated(food)
     }
 
     private func num(_ title: String, _ b: Binding<Double>) -> some View {
         HStack {
             Text(title)
             Spacer()
-            TextField("0", value: b, format: .number.precision(.fractionLength(0...1)))
+            TextField("0", value: b, format: .number.precision(.fractionLength(0...2)))
                 .keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 90)
         }
     }

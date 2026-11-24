@@ -27,13 +27,14 @@ private func fmtValue(_ v: Double) -> String { v.fmt(v >= 100 ? 0 : (v >= 10 ? 1
 struct NutrientsDayCard: View {
     let n: Nutrients
     let m: Micros
+    var e: [String: Double] = [:]
     let ctx: NutrientContext
     var onSelect: (NutrientID) -> Void
     @State private var expanded: Set<NutrientGroup> = [.minerals, .vitamins]
 
     var body: some View {
         let all = NutrientID.allCases.map { id -> (NutrientID, Double, NutrientRef) in
-            (id, id.value(n, m), id.reference(ctx))
+            (id, id.value(n, m, e), id.reference(ctx))
         }
         let okCount = all.filter { $0.0.status($0.1, $0.2).0 == .ok }.count
         Card {
@@ -112,7 +113,7 @@ struct NutrientDetailView: View {
 
     private var todayValue: Double {
         let t = todayLogs
-        return id.value(t.map(\.nutrients).total, t.compactMap(\.micros).total)
+        return id.value(t.map(\.nutrients).total, t.compactMap(\.micros).total, t.map(\.extras).total)
     }
 
     private var series: [(Date, Double)] {
@@ -125,14 +126,14 @@ struct NutrientDetailView: View {
             if l.isEmpty { continue }
             let n: Nutrients = l.map(\.nutrients).total
             let m: Micros = l.compactMap(\.micros).total
-            out.append((d, id.value(n, m)))
+            out.append((d, id.value(n, m, l.map(\.extras).total)))
         }
         return out
     }
 
     private var contributors: [(String, Double)] {
         var dict: [String: Double] = [:]
-        for l in todayLogs { dict[l.name, default: 0] += id.value(l.nutrients, l.micros ?? .zero) }
+        for l in todayLogs { dict[l.name, default: 0] += id.value(l.nutrients, l.micros ?? .zero, l.extras) }
         return dict.filter { $0.value > 0 }.sorted { $0.value > $1.value }.prefix(6).map { ($0.key, $0.value) }
     }
 
@@ -297,6 +298,7 @@ struct NutrientDetailView: View {
 struct NutrientsSummary: View {
     let n: Nutrients
     var m: Micros? = nil
+    var e: [String: Double] = [:]
     @Query private var profiles: [UserProfile]
     @Query(sort: \WeightEntry.date) private var weights: [WeightEntry]
     @Query private var measurements: [MeasurementEntry]
@@ -316,7 +318,7 @@ struct NutrientsSummary: View {
             let ids = NutrientID.allCases.filter { ![.protein, .carbs, .fat].contains($0) }
             let shown = showAll ? ids : ids.filter { [.fiber, .sugar, .saturated, .sodium, .calcium, .iron].contains($0) }
             ForEach(shown) { id in
-                let v = id.value(n, micros), r = id.reference(ctx)
+                let v = id.value(n, micros, e), r = id.reference(ctx)
                 Button { detail = id } label: {
                     HStack {
                         Text(id.title).foregroundStyle(.primary)

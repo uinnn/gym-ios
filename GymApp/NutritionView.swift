@@ -126,6 +126,9 @@ struct NutritionView: View {
             .navigationTitle("Alimentação")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink { CompareView(mode: .food) } label: { Image(systemName: "square.split.2x1") }
+                }
+                ToolbarItem(placement: .topBarLeading) {
                     Button { showStats = true } label: { Image(systemName: "chart.bar.xaxis") }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -257,7 +260,7 @@ struct NutritionView: View {
     // MARK: Micronutrientes
 
     private var microsCard: some View {
-        NutrientsDayCard(n: totals, m: dayLogs.compactMap(\.micros).total,
+        NutrientsDayCard(n: totals, m: dayLogs.compactMap(\.micros).total, e: dayLogs.map(\.extras).total,
                          ctx: nutrientContext) { nutrientDetail = $0 }
     }
 
@@ -508,7 +511,7 @@ struct EditLogSheet: View {
                     }
                     GramsField(grams: $grams)
                 }
-                NutrientsSummary(n: food.per100.scaled(grams / 100), m: food.micros?.scaled(grams / 100))
+                NutrientsSummary(n: food.per100.scaled(grams / 100), m: food.micros?.scaled(grams / 100), e: food.extras?.scaled(grams / 100) ?? [:])
                 Section {
                     Button("Apagar", role: .destructive) { context.delete(log); dismiss() }
                 }

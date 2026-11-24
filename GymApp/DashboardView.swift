@@ -105,7 +105,7 @@ struct DashboardView: View {
             .buttonStyle(PressableStyle())
         }
         .sheet(isPresented: $showProfiles) { ProfileSwitcherView() }
-        .sheet(isPresented: $showSettings) { ProfileView() }
+        .sheet(isPresented: $showSettings) { HubView().presentationDetents([.medium, .large]) }
     }
 
     private var greeting: String {

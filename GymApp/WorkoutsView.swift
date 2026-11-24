@@ -56,6 +56,9 @@ struct WorkoutsView: View {
             .navigationTitle("Treinos")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink { CompareView(mode: .workouts) } label: { Image(systemName: "square.split.2x1") }
+                }
+                ToolbarItem(placement: .topBarLeading) {
                     Button { showStats = true } label: { Image(systemName: "chart.bar.xaxis") }
                 }
                 ToolbarItem(placement: .topBarTrailing) {

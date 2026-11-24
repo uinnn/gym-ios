@@ -162,7 +162,11 @@ final class FoodLog {
 
     /// Vitaminas/minerais adicionais (já na quantidade registrada).
     var extras: [String: Double] {
-        get { extrasData.flatMap { try? JSONDecoder().decode([String: Double].self, from: $0) } ?? [:] }
+        get {
+            if let d = extrasData { return (try? JSONDecoder().decode([String: Double].self, from: d)) ?? [:] }
+            // Registros antigos (antes destes nutrientes): usa a estimativa do banco de alimentos.
+            return FoodDatabase.shared.food(id: foodID)?.extras?.scaled(grams / 100) ?? [:]
+        }
         set { extrasData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
     }
 

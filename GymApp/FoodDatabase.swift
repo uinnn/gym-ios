@@ -6,6 +6,7 @@ final class FoodDatabase {
     static let shared = FoodDatabase()
     let foods: [FoodItem]
     private let index: [(key: String, food: FoodItem)]
+    private let byID: [String: FoodItem]
 
     private struct Raw: Decodable {
         let i: String, n: String, c: String, s: String
@@ -16,7 +17,7 @@ final class FoodDatabase {
         guard let url = Bundle.main.url(forResource: "foods", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let raw = try? JSONDecoder().decode([Raw].self, from: data) else {
-            foods = []; index = []; return
+            foods = []; index = []; byID = [:]; return
         }
         foods = raw.compactMap { r in
             guard r.v.count >= 34 else { return nil }
@@ -28,9 +29,11 @@ final class FoodDatabase {
                            phosphorus: v[21], manganese: v[22], copper: v[23], selenium: v[24], vitaminA: v[25],
                            b1: v[26], b2: v[27], b3: v[28], b6: v[29], b12: v[30], folate: v[31],
                            vitaminD: v[32], vitaminE: v[33])
-            return FoodItem(id: r.i, name: r.n, category: r.c, per100: n, micros: m)
+            let e = ExtraNutrientEstimates.estimate(name: r.n, category: r.c, per100: n)
+            return FoodItem(id: r.i, name: r.n, category: r.c, per100: n, micros: m, extras: e.isEmpty ? nil : e)
         }
         index = foods.map { (Self.normalize($0.name), $0) }
+        byID = Dictionary(foods.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
     static func normalize(_ s: String) -> String {
@@ -51,7 +54,7 @@ final class FoodDatabase {
         return hits.prefix(limit).map(\.food)
     }
 
-    func food(id: String) -> FoodItem? { foods.first { $0.id == id } }
+    func food(id: String) -> FoodItem? { byID[id] }
 
     var categories: [String] { Array(Set(foods.map(\.category))).sorted() }
 }
@@ -134,9 +137,19 @@ enum OpenFoodFacts {
                             b3: v("vitamin-pp_100g") * 1000, b6: v("vitamin-b6_100g") * 1000,
                             b12: v("vitamin-b12_100g") * 1_000_000, folate: v("vitamin-b9_100g") * 1_000_000,
                             vitaminD: v("vitamin-d_100g") * 1_000_000, vitaminE: v("vitamin-e_100g") * 1000)
+        var extras: [String: Double] = [
+            NutrientID.vitaminK.rawValue: v("vitamin-k_100g") * 1_000_000,
+            NutrientID.b5.rawValue: v("pantothenic-acid_100g") * 1000,
+            NutrientID.biotin.rawValue: v("biotin_100g") * 1_000_000,
+            NutrientID.choline.rawValue: v("choline_100g") * 1000,
+            NutrientID.iodine.rawValue: v("iodine_100g") * 1_000_000,
+            NutrientID.chromium.rawValue: v("chromium_100g") * 1_000_000,
+            NutrientID.molybdenum.rawValue: v("molybdenum_100g") * 1_000_000,
+        ].filter { $0.value > 0 }
+        if extras.isEmpty { extras = ExtraNutrientEstimates.estimate(name: name, category: "", per100: per100) }
         return FoodItem(id: "off-\(code)", name: name, category: "Produto industrializado",
                         brand: p.brands?.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespaces) },
                         per100: per100, servingGrams: p.serving_quantity?.value, servingName: p.serving_size,
-                        micros: micros)
+                        micros: micros, extras: extras.isEmpty ? nil : extras)
     }
 }

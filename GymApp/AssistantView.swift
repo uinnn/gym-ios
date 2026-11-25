@@ -67,7 +67,7 @@ struct AssistantView: View {
                     }
                     if !done.isEmpty { doneCard }
                     if thinking {
-                        HStack { ProgressView(); Text("Pensando com o Gemini…").foregroundStyle(.secondary) }.padding()
+                        HStack { ProgressView(); Text("Pensando com a IA…").foregroundStyle(.secondary) }.padding()
                     }
                     ForEach(drafts.filter { $0.kind == .answer }) { a in answerCard(a.text) }
                     if drafts.contains(where: { $0.kind != .answer }) { draftsCard }
@@ -229,8 +229,11 @@ struct AssistantView: View {
         Card {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: fromAI ? "sparkles" : "text.bubble.fill").foregroundStyle(Theme.accent).font(.title3)
-                Text(LocalizedStringKey(t)).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(LocalizedStringKey(t)).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                    if fromAI { Text("Respondido por \(Gemini.lastProvider)").font(.caption2).foregroundStyle(.secondary) }
+                }
             }
         }
     }
@@ -335,7 +338,7 @@ struct AssistantView: View {
                     Text("Abrir a aba Treinos e começar um treino").font(.subheadline)
                 case .unknown:
                     Text(v.text == "question" ? "Não sei responder isso sozinho" : "Não encontrei “\(v.source)”").font(.subheadline)
-                    Text(aiReady ? "Toque em IA para perguntar ao Gemini." : "Tente outro nome, ou ligue a IA nos ajustes (✨).")
+                    Text(aiReady ? "Toque em IA para perguntar à IA." : "Tente outro nome, ou ligue a IA nos ajustes (✨).")
                         .font(.caption).foregroundStyle(.secondary)
                 case .answer:
                     EmptyView()

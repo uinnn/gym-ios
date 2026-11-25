@@ -35,11 +35,23 @@ enum Gemini {
         get { SecureStore.get("gemini.key") }
         set { SecureStore.set("gemini.key", newValue?.trimmingCharacters(in: .whitespacesAndNewlines)) }
     }
+    static let defaultModel = "gemini-flash-lite-latest"
     static var model: String {
-        get { UserDefaults.standard.string(forKey: "gemini.model").flatMap { $0.isEmpty ? nil : $0 } ?? "gemini-flash-latest" }
+        get {
+            let d = UserDefaults.standard
+            if !d.bool(forKey: "gemini.liteMigrated") {          // passa a usar o Flash-Lite (mais rápido, limite maior)
+                d.set(true, forKey: "gemini.liteMigrated")
+                d.set(defaultModel, forKey: "gemini.model")
+            }
+            return d.string(forKey: "gemini.model").flatMap { $0.isEmpty ? nil : $0 } ?? defaultModel
+        }
         set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespaces), forKey: "gemini.model") }
     }
-    static var isConfigured: Bool { !(apiKey ?? "").isEmpty }
+    static var hasKey: Bool { !(apiKey ?? "").isEmpty }
+    /// Há alguma IA disponível (Gemini ou a reserva Groq).
+    static var isConfigured: Bool { hasKey || Groq.hasKey }
+    /// Quem respondeu o último pedido (para mostrar na tela).
+    static var lastProvider = "Gemini"
 
     enum Failure: LocalizedError {
         case noKey, badKey, quota, network, modelNotFound, invalid(String)
@@ -80,7 +92,7 @@ enum Gemini {
         var items: [Item]?
     }
 
-    private static let mealList = Meal.allCases.map(\.rawValue)
+    static let mealList = Meal.allCases.map(\.rawValue)
 
     private static var schema: [String: Any] {
         let num: [String: Any] = ["type": "NUMBER"]
@@ -110,7 +122,7 @@ enum Gemini {
         ]
     }
 
-    private static let system = """
+    static let system = """
     Você é o assistente do app de academia e nutrição "Gym", em português do Brasil. Responda SEMPRE em JSON no esquema pedido.
     Tarefas:
     1) Registro: transforme o que o usuário comeu, bebeu ou fez em itens.
@@ -126,7 +138,24 @@ enum Gemini {
     Nunca invente registros que o usuário não mencionou. Se algo for ambíguo, faça a estimativa mais comum e diga no reply. Não dê diagnóstico médico.
     """
 
+    /// Pergunta ao Gemini; se ele falhar (limite, rede, modelo fora do ar…) e o Groq estiver configurado, usa o Groq.
     static func ask(_ text: String, image: UIImage?, context: String) async throws -> Result {
+        if hasKey {
+            do {
+                let r = try await askGemini(text, image: image, context: context)
+                lastProvider = "Gemini"
+                return r
+            } catch {
+                guard Groq.hasKey else { throw error }
+            }
+        }
+        guard Groq.hasKey else { throw Failure.noKey }
+        let r = try await Groq.ask(text, image: image, context: context)
+        lastProvider = "Groq"
+        return r
+    }
+
+    static func askGemini(_ text: String, image: UIImage?, context: String) async throws -> Result {
         do {
             return try await send(text, image: image, context: context)
         } catch Failure.modelNotFound {
@@ -158,7 +187,7 @@ enum Gemini {
         func score(_ n: String) -> Double {
             var s = 0.0
             if n.contains("flash") { s += 100 }
-            if n.contains("lite") { s -= 30 }
+            if n.contains("lite") { s += 30 }      // Flash-Lite primeiro: mais rápido e com o maior limite grátis
             if n.contains("pro") { s += 20 }
             if n.hasSuffix("latest") { s += 15 }
             if bad.contains(where: n.contains) { s -= 200 }
@@ -311,6 +340,129 @@ extension UIImage {
     }
 }
 
+// MARK: - Groq (reserva)
+
+/// Groq: API compatível com a da OpenAI, muito rápida e com bom limite grátis. Usada quando o Gemini falha.
+enum Groq {
+    static var apiKey: String? {
+        get { SecureStore.get("groq.key") }
+        set { SecureStore.set("groq.key", newValue?.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+    static var hasKey: Bool { !(apiKey ?? "").isEmpty }
+    static let defaultModel = "llama-3.3-70b-versatile"
+    static var model: String {
+        get { UserDefaults.standard.string(forKey: "groq.model").flatMap { $0.isEmpty ? nil : $0 } ?? defaultModel }
+        set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespaces), forKey: "groq.model") }
+    }
+    /// Modelo que lê imagens (escolhido sozinho a partir da lista da sua conta).
+    static var visionModel: String? {
+        get { UserDefaults.standard.string(forKey: "groq.vision") }
+        set { UserDefaults.standard.set(newValue, forKey: "groq.vision") }
+    }
+
+    enum Failure: LocalizedError {
+        case badKey, quota, network, noVision, invalid(String)
+        var errorDescription: String? {
+            switch self {
+            case .badKey: "Chave do Groq inválida. Confira nos ajustes da IA."
+            case .quota: "Limite grátis do Groq atingido também. Tente de novo em alguns minutos."
+            case .network: "Sem conexão com a IA. As regras locais continuam funcionando."
+            case .noVision: "A reserva (Groq) não tem modelo que lê fotos na sua conta. Tente a foto mais tarde."
+            case .invalid(let m): "A IA respondeu algo inesperado: \(m)"
+            }
+        }
+    }
+
+    private static let schemaHint = """
+    Responda SOMENTE com um objeto JSON neste formato (sem texto fora do JSON):
+    {"reply": string, "items": [{"type": "food"|"water"|"weight"|"sleep"|"mood"|"exercise"|"cardio"|"measure",
+      "name"?: string, "grams"?: number, "meal"?: \(Gemini.mealList.map { "\"\($0)\"" }.joined(separator: "|")),
+      "value"?: number, "sets"?: integer, "reps"?: integer, "kg"?: number, "km"?: number, "minutes"?: number,
+      "part"?: \(BodyPart.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: "|")),
+      "kcal100"?: number, "protein100"?: number, "carbs100"?: number, "fat100"?: number, "fiber100"?: number, "dayOffset"?: integer}]}
+    """
+
+    static func ask(_ text: String, image: UIImage?, context: String) async throws -> Gemini.Result {
+        do {
+            return try await send(text, image: image, context: context)
+        } catch Failure.invalid(let m) where m.hasPrefix("modelo") {
+            // modelo desativado: escolhe outro da lista da conta e tenta de novo
+            try await refreshModels()
+            return try await send(text, image: image, context: context)
+        }
+    }
+
+    private static func send(_ text: String, image: UIImage?, context: String) async throws -> Gemini.Result {
+        guard let key = apiKey, !key.isEmpty else { throw Failure.badKey }
+        let prompt = "DADOS DO USUÁRIO:\n\(context)\n\nMENSAGEM:\n\(text.isEmpty ? "(veja a foto)" : text)"
+        var useModel = model
+        var userContent: Any = prompt
+        if let image {
+            if visionModel == nil { try? await refreshModels() }
+            guard let vm = visionModel, let jpg = image.downscaled(maxSide: 1024).jpegData(compressionQuality: 0.7) else { throw Failure.noVision }
+            useModel = vm
+            userContent = [["type": "text", "text": prompt],
+                           ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(jpg.base64EncodedString())"]]]
+        }
+        var body: [String: Any] = [
+            "model": useModel,
+            "messages": [["role": "system", "content": Gemini.system + "\n\n" + schemaHint], ["role": "user", "content": userContent]],
+            "temperature": 0.2,
+        ]
+        if image == nil { body["response_format"] = ["type": "json_object"] }
+        var req = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/chat/completions")!)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 40
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, resp): (Data, URLResponse)
+        do { (data, resp) = try await URLSession.shared.data(for: req) } catch { throw Failure.network }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        let obj = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        let errMsg = ((obj["error"] as? [String: Any])?["message"] as? String) ?? ""
+        if code == 429 { throw Failure.quota }
+        if code == 401 || code == 403 { throw Failure.badKey }
+        if code == 404 || errMsg.contains("model") && (errMsg.contains("decommissioned") || errMsg.contains("not exist") || errMsg.contains("not found")) {
+            throw Failure.invalid("modelo indisponível")
+        }
+        guard code == 200, let content = ((obj["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String else {
+            throw Failure.invalid(errMsg.isEmpty ? "código \(code)" : errMsg)
+        }
+        // tolera respostas com ```json … ```
+        var json = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let a = json.firstIndex(of: "{"), let b = json.lastIndex(of: "}") { json = String(json[a...b]) }
+        guard let d = json.data(using: .utf8), let r = try? JSONDecoder().decode(Gemini.Result.self, from: d) else {
+            return Gemini.Result(reply: content, items: [])
+        }
+        return r
+    }
+
+    /// Lê os modelos da conta e escolhe o melhor para texto e um que leia imagens.
+    @discardableResult
+    static func refreshModels() async throws -> [String] {
+        guard let key = apiKey, !key.isEmpty else { throw Failure.badKey }
+        var req = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/models")!)
+        req.timeoutInterval = 20
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        let (data, resp): (Data, URLResponse)
+        do { (data, resp) = try await URLSession.shared.data(for: req) } catch { throw Failure.network }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        if code == 401 || code == 403 { throw Failure.badKey }
+        guard code == 200, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = obj["data"] as? [[String: Any]] else { throw Failure.invalid("lista de modelos, código \(code)") }
+        let ids = list.filter { ($0["active"] as? Bool) ?? true }.compactMap { $0["id"] as? String }
+        let bad = ["whisper", "guard", "tts", "playai", "distil", "embed", "compound", "saba"]
+        let chat = ids.filter { id in !bad.contains(where: id.lowercased().contains) }
+        let prefer = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "llama-4-maverick", "kimi-k2", "qwen3-32b", "llama-4-scout", "gpt-oss-20b", "llama-3.1-8b-instant"]
+        func rank(_ id: String) -> Int { prefer.firstIndex { id.contains($0) } ?? prefer.count }
+        let sorted = chat.sorted { rank($0) < rank($1) }
+        if !sorted.contains(model), let first = sorted.first { model = first }
+        visionModel = ids.first { $0.contains("llama-4-scout") } ?? ids.first { $0.contains("llama-4-maverick") } ?? ids.first { $0.contains("vision") }
+        return sorted
+    }
+}
+
 // MARK: - Ajustes da IA
 
 struct GeminiSettingsView: View {
@@ -322,6 +474,10 @@ struct GeminiSettingsView: View {
     @State private var ok = false
     @State private var models: [String] = []
     @State private var loadingModels = false
+    @State private var groqKey = Groq.apiKey ?? ""
+    @State private var groqStatus: String?
+    @State private var groqOK = false
+    @State private var groqTesting = false
 
     var body: some View {
         NavigationStack {
@@ -338,7 +494,7 @@ struct GeminiSettingsView: View {
                         }
                     }
                 } header: {
-                    Text("Chave do Gemini")
+                    Text("Principal: Gemini (Flash-Lite)")
                 } footer: {
                     Text("A chave fica só neste iPhone, guardada no Keychain (o cofre de senhas do aparelho). Ela não vai para o código nem para o GitHub.")
                 }
@@ -383,10 +539,43 @@ struct GeminiSettingsView: View {
                     Text("O app escolhe sozinho um modelo disponível se o salvo sair do ar. Prefira os \"flash\": rápidos e com limite gratuito maior.")
                 }
                 Section {
+                    SecureField("Cole aqui a chave do Groq (gsk_…)", text: $groqKey)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Button {
+                        if let s = UIPasteboard.general.string { groqKey = s.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    } label: { Label("Colar da área de transferência", systemImage: "doc.on.clipboard") }
+                    Button {
+                        Task { await testGroq() }
+                    } label: {
+                        HStack {
+                            Label("Salvar e testar a reserva", systemImage: "checkmark.seal")
+                            Spacer()
+                            if groqTesting { ProgressView() }
+                        }
+                    }
+                    .disabled(groqKey.isEmpty || groqTesting)
+                    if let groqStatus {
+                        Label(groqStatus, systemImage: groqOK ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(groqOK ? .green : .orange).font(.subheadline)
+                    }
+                    if !groqKey.isEmpty {
+                        Button(role: .destructive) { groqKey = ""; Groq.apiKey = nil; groqStatus = "Chave do Groq removida." } label: {
+                            Label("Remover chave do Groq", systemImage: "trash")
+                        }
+                    }
+                    Link(destination: URL(string: "https://console.groq.com/keys")!) {
+                        Label("Criar chave grátis no Groq", systemImage: "arrow.up.right.square")
+                    }
+                } header: {
+                    Text("Reserva: Groq")
+                } footer: {
+                    Text("Se o Gemini bater o limite ou falhar, o app usa o Groq na hora, sem você precisar fazer nada. Modelo atual: \(Groq.model).")
+                }
+                Section {
                     Link(destination: URL(string: "https://aistudio.google.com/apikey")!) {
                         Label("Criar chave no Google AI Studio", systemImage: "arrow.up.right.square")
                     }
-                    Text("No plano gratuito, o Google pode usar o que você envia (frases e fotos) para melhorar os modelos. Evite mandar dados sensíveis.")
+                    Text("Nos planos gratuitos, o Google e o Groq podem usar o que você envia (frases e fotos) para melhorar os modelos. Evite mandar dados sensíveis.")
                         .font(.caption).foregroundStyle(.secondary)
                 } header: { Text("Ajuda") }
             }
@@ -399,6 +588,22 @@ struct GeminiSettingsView: View {
     private func save() {
         Gemini.apiKey = key.isEmpty ? nil : key
         Gemini.model = model
+        Groq.apiKey = groqKey.isEmpty ? nil : groqKey
+    }
+
+    private func testGroq() async {
+        save()
+        groqTesting = true
+        defer { groqTesting = false }
+        do {
+            try await Groq.refreshModels()
+            let r = try await Groq.ask("Responda apenas: ok", image: nil, context: "teste de conexão")
+            groqOK = true
+            groqStatus = "Reserva funcionando! (\(Groq.model)\(r.reply.map { ": \($0.prefix(30))" } ?? ""))"
+        } catch {
+            groqOK = false
+            groqStatus = error.localizedDescription
+        }
     }
 
     private func loadModels() async {
@@ -421,7 +626,7 @@ struct GeminiSettingsView: View {
         testing = true
         defer { testing = false }
         do {
-            let r = try await Gemini.ask("Responda apenas: ok", image: nil, context: "teste de conexão")
+            let r = try await Gemini.askGemini("Responda apenas: ok", image: nil, context: "teste de conexão")
             ok = true
             model = Gemini.model
             status = "Funcionando! (\(Gemini.model)\(r.reply.map { ": \($0.prefix(40))" } ?? ""))"

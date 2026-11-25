@@ -24,6 +24,7 @@ struct AssistantView: View {
     @State private var pulse = false
     @State private var image: UIImage?
     @State private var photoItem: PhotosPickerItem?
+    @State private var showGallery = false
     @State private var showCamera = false
     @State private var showSettings = false
     @State private var thinking = false
@@ -107,10 +108,18 @@ struct AssistantView: View {
             .onChange(of: photoItem) { _, it in
                 guard let it else { return }
                 Task {
-                    if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { image = img }
+                    // Fotos do iCloud podem demorar para baixar; HEIC também abre pelo UIImage.
+                    if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) {
+                        image = img.downscaled(maxSide: 2048)
+                        aiError = nil
+                    } else {
+                        aiError = "Não consegui abrir essa foto. Tente outra ou tire uma pela câmera."
+                    }
                     photoItem = nil
                 }
             }
+            // O seletor da galeria fica fora do Menu: dentro dele o iOS fecha o menu e não abre a galeria.
+            .photosPicker(isPresented: $showGallery, selection: $photoItem, matching: .images, photoLibrary: .shared())
             .fullScreenCover(isPresented: $showCamera) { CameraPicker { image = $0 }.ignoresSafeArea() }
             .sheet(isPresented: $showSettings, onDismiss: { aiReady = Gemini.isConfigured }) { GeminiSettingsView() }
             .sensoryFeedback(.success, trigger: done.count) { _, n in n > 0 && ThemeStore.shared.haptics }
@@ -146,7 +155,7 @@ struct AssistantView: View {
                 HStack(spacing: 10) {
                     Menu {
                         Button { showCamera = true } label: { Label("Tirar foto do prato", systemImage: "camera.fill") }
-                        PhotosPicker(selection: $photoItem, matching: .images) { Label("Escolher da galeria", systemImage: "photo") }
+                        Button { showGallery = true } label: { Label("Escolher da galeria", systemImage: "photo") }
                     } label: {
                         Image(systemName: "camera.fill").font(.title3).frame(width: 44, height: 44)
                             .background(.quaternary, in: Circle())

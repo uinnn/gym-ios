@@ -8,7 +8,7 @@ import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, onSnapshot, doc,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
-import { initEdit, addBtn, rowActions, fab } from "./edit.js";
+import { initEdit, addBtn, rowActions, fab, openForm } from "./edit.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -68,13 +68,16 @@ function initEditStore() { editCtx.store = store; }
 let summary = null;
 let unsubs = [];
 let lastServer = 0;
+const pendingWrites = {};
+const pendingTotal = () => Object.values(pendingWrites).reduce((a, b) => a + b, 0);
 let loaded = new Set();
 
 function listen(uid) {
   unsubs.forEach((u) => u());
   loaded = new Set();
-  unsubs = COLS.map((c) => onSnapshot(collection(db, "users", uid, c), (snap) => {
+  unsubs = COLS.map((c) => onSnapshot(collection(db, "users", uid, c), { includeMetadataChanges: true }, (snap) => {
     loaded.add(c);
+    pendingWrites[c] = snap.docs.filter((d) => d.metadata.hasPendingWrites).length;
     snap.docChanges().forEach((ch) => {
       const v = ch.doc.data();
       if (ch.type === "removed" || v.deleted) { store[c].delete(ch.doc.id); return; }
@@ -224,8 +227,10 @@ function shell(content, title, sub = "") {
     </div></aside>
     <main class="main">
       <div class="top reveal"><div><span class="eyebrow">${esc(summary?.profileName || "Gym")}</span><h1 class="display" style="margin-top:12px">${title}</h1>${sub ? `<div class="sub">${sub}</div>` : ""}</div>
-        <span class="badge">${summary?.updated ? `<span class="live"></span>iPhone ${rel(summary.updated)}` : "Aguardando o iPhone"}</span></div>
+        <span style="display:flex;gap:8px;flex-wrap:wrap">${!navigator.onLine ? `<span class="badge warn">Offline${pendingTotal() ? ` · ${pendingTotal()} para enviar` : ""}</span>` : pendingTotal() ? `<span class="badge warn">Enviando ${pendingTotal()}…</span>` : ""}
+        <span class="badge">${summary?.updated ? `<span class="live"></span>iPhone ${rel(summary.updated)}` : "Aguardando o iPhone"}</span></span></div>
       ${lastError ? `<div class="msg err">${esc(lastError)}</div>` : ""}
+      ${updateReady ? `<div class="msg info">Nova versão do site disponível. <a href="#" id="upd">Atualizar agora</a></div>` : ""}
       ${ACTIONS[page()] ? `<div class="chips" style="margin:-8px 0 18px">${ACTIONS[page()]}</div>` : ""}
       ${content}
     </main>
@@ -516,11 +521,39 @@ function viewConta() {
       <div class="card">${head("Aparência")}
         <div class="field"><label>Tema</label><div class="seg" id="theme">${[["dark", "Escuro"], ["light", "Claro"], ["system", "Sistema"]].map(([v, l]) => `<button data-t="${v}" class="${theme === v ? "on" : ""}">${l}</button>`).join("")}</div></div>
         <div class="field"><label>Cor</label><div class="swatches">${ACCENTS.map(([a, b], i) => `<div class="swatch ${accent === i ? "on" : ""}" data-a="${i}" style="background:linear-gradient(135deg,${a},${b})"></div>`).join("")}</div></div></div>
+      <div class="card spanall">${head("App no celular e no computador")}${installCard()}</div>
       <div class="card spanall">${head("Sincronização")}<div class="small muted">
         O iPhone envia os registros (modo automático ou manual, em Central → Sincronização) e um resumo com metas e cálculos sempre que o app abre.
         Último resumo: <b>${summary?.updated ? rel(summary.updated) : "nunca"}</b>.</div>
         <div class="chips" style="margin-top:12px">${COLS.map((c) => `<span class="chip">${c} ${store[c].size}</span>`).join("")}</div></div>
     </div>`, "Conta");
+}
+
+// ================================================================ PWA (instalar + offline)
+let installEvt = null;
+const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; scheduleRender(); });
+addEventListener("appinstalled", () => { installEvt = null; scheduleRender(); });
+addEventListener("online", scheduleRender);
+addEventListener("offline", scheduleRender);
+if ("serviceWorker" in navigator && location.hostname !== "localhost") {
+  navigator.serviceWorker.register("/sw.js").then((reg) => {
+    reg.addEventListener("updatefound", () => {
+      const w = reg.installing;
+      w?.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) { updateReady = w; scheduleRender(); } });
+    });
+  }).catch(() => {});
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded) { reloaded = true; location.reload(); } });
+}
+let updateReady = null;
+function installCard() {
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (standalone()) return `<div class="small muted">✓ Você está usando o Gym instalado. Ele abre em tela cheia e funciona sem internet: o que você registrar offline é enviado sozinho quando a conexão voltar.</div>`;
+  return `<div class="small muted" style="margin-bottom:12px">Instale o site como app: abre em tela cheia, tem ícone na tela inicial e funciona sem internet (Android, iPhone, iPad, Windows e Mac).</div>
+    ${installEvt ? `<button class="btn primary" id="install">Instalar o Gym</button>` : ios
+      ? `<div class="small">No iPhone/iPad (Safari): toque em <b>Compartilhar</b> <span class="chip">⬆︎</span> e depois em <b>Adicionar à Tela de Início</b>.</div>`
+      : `<div class="small">No Chrome/Edge: menu <span class="chip">⋮</span> → <b>Instalar Gym</b> (ou o ícone de instalar na barra de endereço). No Android: menu → <b>Instalar app</b>.</div>`}`;
 }
 
 // ================================================================ login
@@ -611,6 +644,12 @@ function bindLogin() {
 
 function bindPage(p) {
   const q = (s) => document.querySelectorAll(s);
+  const upd = document.getElementById("upd");
+  if (upd) upd.onclick = (e) => { e.preventDefault(); updateReady?.postMessage("skip"); };
+  const inst = document.getElementById("install");
+  if (inst) inst.onclick = async () => { await installEvt?.prompt(); installEvt = null; render(); };
+  const add = new URLSearchParams(location.search).get("add");
+  if (add) { history.replaceState(null, "", location.pathname + location.hash); setTimeout(() => openForm(add), 300); }
   const rerender = () => { lastPage = ""; render(); };
   if (p === "corpo") q("#range button").forEach((b) => b.onclick = () => { weightRange = +b.dataset.r; rerender(); });
   if (p === "alimentacao") {

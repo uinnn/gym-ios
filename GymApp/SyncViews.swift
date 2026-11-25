@@ -126,10 +126,11 @@ struct SyncSettingsView: View {
     @State private var verified: Bool?
     @State private var confirmOut = false
     @State private var showPending = false
+    @State private var confirmRestore = false
 
     var body: some View {
         Form {
-            if engine.signedIn { accountSection; modeSection; statusSection } else { loginSection }
+            if engine.signedIn { accountSection; modeSection; statusSection; maintenanceSection } else { loginSection }
             Section {
                 Label("O app continua funcionando 100% offline. Sem internet, nada é perdido: os registros esperam na fila e são enviados depois.", systemImage: "wifi.slash")
                 Label("Só o perfil \"\(profileName)\" deste iPhone sincroniza com o site.", systemImage: "person.fill")
@@ -142,6 +143,17 @@ struct SyncSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { if engine.signedIn { verified = await SyncAuth.shared.emailVerified(); engine.refreshPending() } }
         .sheet(isPresented: $showPending) { PendingSheet() }
+        .confirmationDialog("Baixar tudo da sua conta para este iPhone?", isPresented: $confirmRestore, titleVisibility: .visible) {
+            Button("Restaurar") { Task { await engine.restoreAll() } }
+        } message: {
+            Text("Os registros da conta entram neste iPhone (o mais recente vence). Nada daqui é apagado.")
+        }
+        .alert("Restaurar seus dados?", isPresented: Binding(get: { engine.offerRestore }, set: { engine.offerRestore = $0 })) {
+            Button("Restaurar agora") { Task { await engine.restoreAll() } }
+            Button("Agora não", role: .cancel) {}
+        } message: {
+            Text("Este iPhone está sem registros. Quer baixar tudo o que está salvo na sua conta (pesagens, alimentação, treinos…)?")
+        }
         .confirmationDialog("Sair da conta? Os dados continuam neste iPhone e no site.", isPresented: $confirmOut, titleVisibility: .visible) {
             Button("Sair", role: .destructive) { Task { await engine.signOut() } }
         }
@@ -283,6 +295,20 @@ struct SyncSettingsView: View {
         .font(.caption)
     }
 
+    private var maintenanceSection: some View {
+        Section {
+            NavigationLink { SyncHealthView() } label: {
+                Label("Verificar sincronização", systemImage: "stethoscope")
+            }
+            Button { confirmRestore = true } label: {
+                Label("Restaurar tudo da minha conta", systemImage: "arrow.down.to.line.circle")
+            }
+            .disabled(engine.busy || !engine.online)
+        } header: { Text("Manutenção") } footer: {
+            Text("Use \"Restaurar\" num iPhone novo ou se algo sumiu. \"Verificar\" compara este iPhone com a conta e corrige as diferenças.")
+        }
+    }
+
     private var statusSection: some View {
         Section {
             HStack {
@@ -346,4 +372,94 @@ private struct PendingSheet: View {
     }
 
     private func reload() { groups = engine.pendingItems() }
+}
+
+
+// MARK: - Saúde da sincronização
+
+struct SyncHealthView: View {
+    @State private var engine = SyncEngine.shared
+    @State private var rows: [SyncEngine.HealthRow] = []
+    @State private var loading = false
+    @State private var fixing = false
+    @State private var error: String?
+    @State private var checkedAt: Date?
+
+    private var problems: Int { rows.filter { !$0.ok }.count }
+
+    var body: some View {
+        List {
+            Section {
+                HStack(spacing: 14) {
+                    Image(systemName: loading ? "hourglass" : rows.isEmpty ? "questionmark.circle" : problems == 0 ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                        .font(.largeTitle)
+                        .foregroundStyle(rows.isEmpty || loading ? Color.secondary : problems == 0 ? Theme.good : .orange)
+                        .symbolEffect(.pulse, isActive: loading)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(loading ? "Comparando…" : rows.isEmpty ? "Ainda não verificado" : problems == 0 ? "Tudo sincronizado" : "\(problems) tipo(s) com diferenças")
+                            .font(.headline)
+                        if let checkedAt { Text("Verificado \(checkedAt.formatted(.relative(presentation: .named)))").font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+                .padding(.vertical, 4)
+                if let error { Label(error, systemImage: "wifi.exclamationmark").font(.caption).foregroundStyle(.orange) }
+                if problems > 0 {
+                    Button {
+                        Task {
+                            fixing = true
+                            await engine.fixDifferences(rows)
+                            fixing = false
+                            await check()
+                        }
+                    } label: {
+                        HStack {
+                            Label("Corrigir diferenças", systemImage: "wand.and.stars").bold()
+                            Spacer()
+                            if fixing { ProgressView() }
+                        }
+                    }
+                    .disabled(fixing || loading)
+                }
+            }
+            if !rows.isEmpty {
+                Section {
+                    ForEach(rows) { r in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Image(systemName: r.ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                                    .foregroundStyle(r.ok ? Theme.good : .orange)
+                                Text(r.label).font(.subheadline.bold())
+                                Spacer()
+                                Text("iPhone \(r.local) · conta \(r.remote)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                            if !r.ok {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    if !r.onlyLocal.isEmpty { Text("• \(r.onlyLocal.count) só neste iPhone (serão enviados)") }
+                                    if !r.newerLocal.isEmpty { Text("• \(r.newerLocal.count) mais novos aqui (serão enviados)") }
+                                    if r.onlyRemote > 0 { Text("• \(r.onlyRemote) só na conta (serão baixados)") }
+                                    if r.newerRemote > 0 { Text("• \(r.newerRemote) mais novos na conta (serão baixados)") }
+                                }
+                                .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                } header: { Text("Por tipo de registro") } footer: {
+                    Text("\"Corrigir\" segue a regra de sempre: a edição mais recente vence. Nada é apagado, a não ser exclusões feitas de propósito no app ou no site.")
+                }
+            }
+        }
+        .navigationTitle("Verificar sincronização")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { Button { Task { await check() } } label: { Image(systemName: "arrow.clockwise") }.disabled(loading) }
+        .task { await check() }
+        .refreshable { await check() }
+    }
+
+    private func check() async {
+        loading = true; error = nil
+        defer { loading = false }
+        do { rows = try await engine.checkHealth(); checkedAt = .now }
+        catch { self.error = error.localizedDescription }
+    }
 }

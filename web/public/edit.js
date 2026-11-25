@@ -72,7 +72,7 @@ async function onClick(e) {
   if (el.closest("summary")) e.preventDefault();
   try {
     if (a === "close") close();
-    else if (a === "save" && onSave) { el.disabled = true; await onSave(); close(); toast("Salvo — o iPhone recebe na próxima vez que abrir."); }
+    else if (a === "save" && onSave) { el.disabled = true; await onSave(); close(); toast(navigator.onLine ? "Salvo — o iPhone recebe na próxima vez que abrir." : "Salvo offline — será enviado quando a internet voltar."); }
     else if (a === "danger" && dangerFn) { if (confirm("Apagar este registro no site e no iPhone?")) { await dangerFn(); close(); toast("Apagado."); } }
     else if (a === "add") open(el.dataset.kind);
     else if (a === "quick") quickMenu();
@@ -105,6 +105,7 @@ function quickMenu() {
 }
 
 // ---------------------------------------------------------------- formulários
+export function openForm(kind) { open(kind); }
 function open(kind, id) {
   const f = FORMS[kind];
   if (f) f(id);

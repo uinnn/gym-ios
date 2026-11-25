@@ -790,16 +790,22 @@ final class SyncEngine {
             return
         }
         // Só o que for mais novo que a versão local e não tiver vindo deste iPhone.
-        let relevant = found.filter { isNewer($0) }
-        advanceCursors(found.filter { !isNewer($0) })
+        let relevant = newerOnly(found)
+        let ids = Set(relevant.map(\.id))
+        advanceCursors(found.filter { !ids.contains($0.id) })
         guard !relevant.isEmpty else { lastSync = .now; return }
         if mode == .auto { apply(relevant) } else { incoming = relevant }
     }
 
-    private func isNewer(_ r: RemoteChange) -> Bool {
-        guard let k = SyncKind.all.first(where: { $0.collection == r.collection }) else { return false }
-        if let local = k.fetch(context).first(where: { $0.syncID == r.syncID }) { return r.updated > local.syncUpdated }
-        return !r.deleted
+    /// Só o que for mais novo que a versão local (e exclusões de registros que ainda existem aqui).
+    private func newerOnly(_ changes: [RemoteChange]) -> [RemoteChange] {
+        var out: [RemoteChange] = []
+        for (c, list) in Dictionary(grouping: changes, by: \.collection) {
+            guard let k = SyncKind.all.first(where: { $0.collection == c }) else { continue }
+            let local = Dictionary(k.fetch(context).filter { !$0.syncID.isEmpty }.map { ($0.syncID, $0.syncUpdated) }, uniquingKeysWith: { max($0, $1) })
+            out += list.filter { r in local[r.syncID].map { r.updated > $0 } ?? !r.deleted }
+        }
+        return out
     }
 
     private func advanceCursors(_ changes: [RemoteChange]) {
@@ -885,6 +891,147 @@ final class SyncEngine {
 
     func discardIncoming() { incoming = [] }
 
+    // MARK: Restaurar e verificar
+
+    /// Oferecer restauração (conta nova neste iPhone com o banco vazio).
+    var offerRestore = false
+
+    /// Baixa tudo da conta e aplica neste iPhone (iPhone novo ou dados perdidos). Funciona em qualquer modo.
+    @discardableResult
+    func restoreAll() async -> Int {
+        guard signedIn, online, let uid = SyncAuth.shared.uid else { status = "Sem internet ou sem conta."; return 0 }
+        busy = true
+        var found: [RemoteChange] = []
+        do {
+            let t = try await SyncAuth.shared.token()
+            for (i, k) in SyncKind.all.enumerated() {
+                progress = (i, SyncKind.all.count)
+                var cursor: String? = nil
+                while true {
+                    let page = try await query(uid: uid, collection: k.collection, after: cursor, token: t)
+                    found += page
+                    guard page.count == 300, let last = page.last?.server else { break }
+                    cursor = last
+                }
+            }
+        } catch {
+            busy = false; progress = nil
+            status = "Não consegui restaurar: \(error.localizedDescription)"
+            return 0
+        }
+        busy = false; progress = nil
+        let relevant = newerOnly(found)
+        if !relevant.isEmpty { apply(relevant) }
+        advanceCursors(found)
+        lastSync = .now
+        status = relevant.isEmpty ? "Tudo já estava igual à sua conta." : "Restaurado: \(relevant.count) registro(s) da sua conta."
+        return relevant.count
+    }
+
+    /// Diferenças entre este iPhone e a conta, por tipo de registro.
+    struct HealthRow: Identifiable {
+        var id: String { collection }
+        let collection: String
+        let label: String
+        var local = 0, remote = 0
+        var onlyLocal: [String] = []       // ids locais que a conta não tem
+        var onlyRemote = 0                 // registros da conta que não estão aqui
+        var newerLocal: [String] = []      // editados aqui depois da conta
+        var newerRemote = 0                // editados na conta depois daqui
+        var ok: Bool { onlyLocal.isEmpty && onlyRemote == 0 && newerLocal.isEmpty && newerRemote == 0 }
+    }
+
+    func checkHealth() async throws -> [HealthRow] {
+        guard signedIn, let uid = SyncAuth.shared.uid else { throw SyncAuthError.message("Entre na sua conta.") }
+        guard online else { throw SyncAuthError.message("Sem internet.") }
+        let t = try await SyncAuth.shared.token()
+        var rows: [HealthRow] = []
+        for k in SyncKind.all {
+            let remote = try await index(uid: uid, collection: k.collection, token: t)
+            var row = HealthRow(collection: k.collection, label: k.label)
+            let items = k.fetch(context)
+            row.local = items.count
+            row.remote = remote.values.filter { !$0.deleted }.count
+            var seen = Set<String>()
+            for m in items {
+                let key = m.syncID.isEmpty ? "local-\(ObjectIdentifier(m).hashValue)" : m.syncID
+                guard let r = remote[m.syncID], !m.syncID.isEmpty else { row.onlyLocal.append(key); continue }
+                seen.insert(m.syncID)
+                if r.updated > m.syncUpdated { row.newerRemote += 1 }
+                else if m.syncUpdated > r.updated || r.deleted { row.newerLocal.append(m.syncID) }
+            }
+            row.onlyRemote = remote.filter { !$0.value.deleted && !seen.contains($0.key) }.count
+            rows.append(row)
+        }
+        return rows
+    }
+
+    /// Lista leve (só id, data e exclusão) de um tipo de registro na conta.
+    private func index(uid: String, collection: String, token: String) async throws -> [String: (updated: Double, deleted: Bool)] {
+        var out: [String: (updated: Double, deleted: Bool)] = [:]
+        var cursor: String? = nil
+        while true {
+            var q: [String: Any] = [
+                "from": [["collectionId": collection]],
+                "select": ["fields": [["fieldPath": "updated"], ["fieldPath": "deleted"], ["fieldPath": "server"]]],
+                "orderBy": [["field": ["fieldPath": "server"], "direction": "ASCENDING"]],
+                "limit": 1000,
+            ]
+            if let cursor {
+                q["where"] = ["fieldFilter": ["field": ["fieldPath": "server"], "op": "GREATER_THAN", "value": ["timestampValue": cursor]]]
+            }
+            var r = URLRequest(url: URL(string: "https://firestore.googleapis.com/v1/projects/\(FirebaseConfig.projectID)/databases/(default)/documents/users/\(uid):runQuery")!)
+            r.httpMethod = "POST"
+            r.timeoutInterval = 30
+            r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            r.httpBody = try JSONSerialization.data(withJSONObject: ["structuredQuery": q])
+            let (data, resp) = try await URLSession.shared.data(for: r)
+            guard let h = resp as? HTTPURLResponse, (200..<300).contains(h.statusCode) else {
+                throw SyncAuthError.message("HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)")
+            }
+            let docs = ((try JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []).compactMap { $0["document"] as? [String: Any] }
+            var last: String?
+            for doc in docs {
+                let f = doc["fields"] as? [String: Any] ?? [:]
+                guard let id = (doc["name"] as? String)?.split(separator: "/").last.map(String.init) else { continue }
+                let upd = f["updated"] as? [String: Any]
+                let updated = (upd?["doubleValue"] as? Double) ?? Double(upd?["integerValue"] as? String ?? "") ?? 0
+                out[id] = (updated, (f["deleted"] as? [String: Any])?["booleanValue"] as? Bool ?? false)
+                last = (f["server"] as? [String: Any])?["timestampValue"] as? String
+            }
+            guard docs.count == 1000, let l = last else { break }
+            cursor = l
+        }
+        return out
+    }
+
+    /// Corrige as diferenças: envia o que só existe (ou é mais novo) aqui e baixa o que é mais novo na conta.
+    func fixDifferences(_ rows: [HealthRow]) async {
+        let now = (Date.now.timeIntervalSince1970 * 1000).rounded()
+        var toSend: [any Syncable] = []
+        mute {
+            for row in rows where !row.onlyLocal.isEmpty || !row.newerLocal.isEmpty {
+                guard let k = SyncKind.all.first(where: { $0.collection == row.collection }) else { continue }
+                let newer = Set(row.newerLocal)
+                for case var m in k.fetch(context) where m.syncID.isEmpty || newer.contains(m.syncID) || row.onlyLocal.contains(m.syncID) {
+                    if m.syncID.isEmpty { m.syncID = UUID().uuidString }
+                    if m.syncUpdated == 0 { m.syncUpdated = now }
+                    m.syncSent = 0
+                    toSend.append(m)
+                }
+            }
+        }
+        if !toSend.isEmpty || !tombstones.isEmpty { await upload(toSend, deletes: tombstones) }
+        if rows.contains(where: { $0.onlyRemote > 0 || $0.newerRemote > 0 }) { await restoreAll() }
+        await sendSummary()
+    }
+
+    /// Conta registros locais (sem o perfil) para saber se o iPhone está vazio.
+    private var localIsEmpty: Bool {
+        SyncKind.all.filter { $0.collection != UserProfile.collection }.allSatisfy { $0.fetch(context).isEmpty }
+    }
+
     // MARK: Primeira sincronização e conta
 
     /// Marca todo o histórico deste perfil para envio (primeira vez).
@@ -910,6 +1057,7 @@ final class SyncEngine {
         email = SyncAuth.shared.email
         profileID = ProfileRegistry.shared.activeID
         refreshPending()
+        offerRestore = localIsEmpty
     }
 
     func signOut() async {

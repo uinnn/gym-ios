@@ -3,6 +3,8 @@ import SwiftData
 import Charts
 
 struct WorkoutsView: View {
+    /// Evita reabrir o treino em andamento toda vez que a aba aparece.
+    private static var resumedThisLaunch = false
     @Environment(\.modelContext) private var context
     @Query(sort: \WorkoutRoutine.order) private var routines: [WorkoutRoutine]
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
@@ -78,6 +80,13 @@ struct WorkoutsView: View {
             .fullScreenCover(isPresented: $cardioLive) { CardioLiveView() }
             .onChange(of: AppRouter.shared.openCardio, initial: true) { _, v in
                 if v { AppRouter.shared.openCardio = false; cardioLive = true }
+            }
+            .onAppear {
+                // retoma o treino que estava aberto quando o app foi fechado
+                if !Self.resumedThisLaunch, let r = running, Date.now.timeIntervalSince(r.start) < 6 * 3600 {
+                    Self.resumedThisLaunch = true
+                    active = r
+                }
             }
             .onChange(of: AppRouter.shared.openWorkout, initial: true) { _, v in
                 guard v else { return }
@@ -405,6 +414,7 @@ struct SessionDetailView: View {
     @Environment(\.modelContext) private var context
     @State private var confirmDelete = false
     @State private var showShare = false
+    @State private var editing = false
 
     var body: some View {
         NavigationStack {
@@ -435,6 +445,7 @@ struct SessionDetailView: View {
                     }
                 }
                 Section {
+                    Button("Editar treino", systemImage: "pencil") { editing = true }
                     Button("Compartilhar imagem", systemImage: "square.and.arrow.up") { showShare = true }
                     Button("Repetir este treino", systemImage: "arrow.clockwise") { dismiss(); onRepeat(session) }
                     Button("Apagar treino", systemImage: "trash", role: .destructive) { confirmDelete = true }
@@ -449,6 +460,7 @@ struct SessionDetailView: View {
             .sheet(isPresented: $showShare) {
                 ShareImageSheet(title: "Treino") { WorkoutShareCard(session: session) }
             }
+            .sheet(isPresented: $editing) { SessionEditorView(session: session) }
         }
     }
 }

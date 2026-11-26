@@ -55,6 +55,13 @@ struct ActiveWorkoutView: View {
     @State private var summary: WorkoutSession?
     @State private var prFlash: UUID?
     @State private var tick = 0
+    @State private var undo: WorkoutUndo?
+    @State private var collapsed: Set<UUID> = []
+    @State private var noteOpen: Set<UUID> = []
+    @State private var renaming = false
+    @State private var newName = ""
+    @State private var diskSave: Task<Void, Never>?
+    @Environment(\.scenePhase) private var phase
     /// Campo em edição (série + qual valor): os atalhos do teclado agem sobre ele.
     struct FieldKey: Hashable { enum Kind { case kg, reps, minutes, km }; let set: UUID; let kind: Kind }
     @FocusState private var focus: FieldKey?
@@ -80,18 +87,29 @@ struct ActiveWorkoutView: View {
                         .buttonStyle(PressableStyle())
                         Button("Cancelar treino", role: .destructive) { confirmCancel = true }
                             .font(.subheadline).padding(.top, 8)
-                        Color.clear.frame(height: restEnd == nil ? 20 : 120)
+                        Color.clear.frame(height: (restEnd == nil ? 20 : 120) + (undo == nil ? 0 : 60))
                     }
                     .padding()
                 }
                 .scrollDismissesKeyboard(.interactively)
-                if restEnd != nil { restBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
+                VStack(spacing: 8) {
+                    if let u = undo { UndoBanner(text: u.label) { performUndo() }.transition(.move(edge: .bottom).combined(with: .opacity)) }
+                    if restEnd != nil { restBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
+                }
             }
             .navigationTitle(session.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Button { newName = session.name; renaming = true } label: {
+                        HStack(spacing: 4) {
+                            Text(session.name).font(.headline).foregroundStyle(.primary)
+                            Image(systemName: "pencil").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { save(); dismiss() } label: { Image(systemName: "chevron.down") }
+                    Button { saveNow(); dismiss() } label: { Image(systemName: "chevron.down") }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Finalizar") { finish() }.bold().tint(Theme.good)
@@ -124,23 +142,63 @@ struct ActiveWorkoutView: View {
                 }
             }
             .sheet(item: $detail) { ExerciseDetailView(exercise: $0) }
+            .alert("Nome do treino", isPresented: $renaming) {
+                TextField("Nome", text: $newName)
+                Button("Salvar") { if !newName.trimmingCharacters(in: .whitespaces).isEmpty { session.name = newName; saveNow() } }
+                Button("Cancelar", role: .cancel) {}
+            }
             .sheet(item: $summary, onDismiss: { dismiss() }) { WorkoutSummaryView(session: $0) }
             .confirmationDialog("Descartar este treino?", isPresented: $confirmCancel, titleVisibility: .visible) {
-                Button("Descartar", role: .destructive) { LiveActivities.end(); context.delete(session); dismiss() }
+                Button("Descartar", role: .destructive) {
+                    UserDefaults.standard.removeObject(forKey: restKey)
+                    LiveActivities.end(); context.delete(session); try? context.save(); dismiss()
+                }
             }
             .onAppear {
                 exercises = session.exercises
+                // séries todas feitas começam recolhidas; o descanso continua de onde parou
+                collapsed = Set(exercises.filter { !$0.sets.isEmpty && $0.sets.allSatisfy(\.done) }.map(\.id))
+                if let saved = UserDefaults.standard.array(forKey: restKey) as? [Double], saved.count == 2 {
+                    let end = Date(timeIntervalSince1970: saved[0])
+                    if end > .now { restTotal = saved[1]; restEnd = end }
+                }
                 UIApplication.shared.isIdleTimerDisabled = true
                 LiveActivities.startWorkout(session.name, start: session.start, subtitle: liveSubtitle)
             }
-            .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+            .onDisappear { UIApplication.shared.isIdleTimerDisabled = false; if session.modelContext != nil { saveNow() } }
             .onChange(of: exercises) { _, _ in save() }
+            .onChange(of: phase) { _, p in
+                // indo para o fundo: confirma o campo em edição e grava tudo no disco
+                if p != .active { focus = nil; if session.modelContext != nil { saveNow() } }
+            }
+            .onChange(of: undo) { _, u in
+                guard u != nil else { return }
+                Task { try? await Task.sleep(for: .seconds(5)); if undo == u { withAnimation { undo = nil } } }
+            }
             .sensoryFeedback(.success, trigger: tick) { _, _ in ThemeStore.shared.haptics }
             .sensoryFeedback(.impact(weight: .heavy), trigger: prFlash) { _, new in new != nil && ThemeStore.shared.haptics }
         }
     }
 
-    private func save() { session.exercises = exercises }
+    /// Cada mudança vai para o treino na hora e para o disco em menos de 1 s:
+    /// fechar o app, bloquear o celular ou acabar a bateria não perde séries.
+    private func save() {
+        session.exercises = exercises
+        diskSave?.cancel()
+        diskSave = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            try? context.save()
+        }
+    }
+
+    private func saveNow() {
+        diskSave?.cancel()
+        session.exercises = exercises
+        try? context.save()
+    }
+
+    private var restKey: String { "workout.rest.\(session.start.timeIntervalSince1970)" }
 
     // MARK: Cabeçalho
 
@@ -148,6 +206,8 @@ struct ActiveWorkoutView: View {
         Card {
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 let done = exercises.flatMap(\.workSets)
+                let total = exercises.map { $0.sets.filter { $0.kind != .warmup }.count }.reduce(0, +)
+                VStack(spacing: 10) {
                 HStack {
                     stat("Duração", WorkoutMath.durationText(session.duration), "timer")
                     Spacer()
@@ -156,6 +216,12 @@ struct ActiveWorkoutView: View {
                     stat("Séries", "\(done.count)", "checkmark.circle.fill")
                     Spacer()
                     stat("kcal", WorkoutMath.kcal(session).fmt(0), "flame.fill")
+                }
+                if total > 0 {
+                    ProgressBar(progress: Double(done.count) / Double(total), tint: Theme.good, height: 6)
+                    Text(done.count >= total ? "Tudo feito! Toque em Finalizar 🎉" : "\(done.count) de \(total) séries · \(exercises.filter { e in e.sets.contains { !$0.done } }.count) exercício(s) pela frente")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
                 }
             }
         }
@@ -177,119 +243,213 @@ struct ActiveWorkoutView: View {
         let isCardio = x?.kind == .cardio || x?.kind == .timed
         let prev = WorkoutMath.previous(e.exerciseID, before: session.start, in: past)
         let best = WorkoutMath.best(e.exerciseID, in: past)
+        let doneCount = e.sets.filter(\.done).count
+        let allDone = !e.sets.isEmpty && doneCount == e.sets.count
+        let isCollapsed = collapsed.contains(e.id)
+        let index = exercises.firstIndex { $0.id == e.id } ?? 0
         return Card {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
+                HStack(alignment: .top) {
                     Button { detail = x } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(x?.name ?? e.exerciseID).font(.headline).foregroundStyle(Theme.accent)
-                            Text(x?.primary.map(\.label).joined(separator: ", ") ?? "")
+                            Text(x?.name ?? e.exerciseID).font(.headline).foregroundStyle(allDone ? Theme.good : Theme.accent)
+                            Text("\(x?.primary.map(\.label).joined(separator: ", ") ?? "") · \(doneCount)/\(e.sets.count) séries")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .buttonStyle(.tap)
                     Spacer()
+                    Button {
+                        withAnimation(.spring(duration: 0.3)) {
+                            if isCollapsed { collapsed.remove(e.id) } else { collapsed.insert(e.id) }
+                        }
+                    } label: {
+                        Image(systemName: isCollapsed ? "chevron.down.circle" : "chevron.up.circle").font(.title3).foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.tap)
                     Menu {
-                        Menu("Descanso: \(e.restSeconds) s") {
-                            ForEach([0, 30, 45, 60, 90, 120, 150, 180, 240, 300], id: \.self) { s in
-                                Button("\(s) s") { ex.wrappedValue.restSeconds = s }
+                        Section {
+                            Button("Marcar todas como feitas", systemImage: "checkmark.circle") {
+                                withAnimation { for i in ex.wrappedValue.sets.indices { ex.wrappedValue.sets[i].done = true } }
+                                tick += 1
+                            }
+                            Button(noteOpen.contains(e.id) || !e.note.isEmpty ? "Editar nota" : "Adicionar nota", systemImage: "note.text") {
+                                withAnimation { _ = noteOpen.insert(e.id) }
+                            }
+                            Menu("Descanso: \(e.restSeconds) s") {
+                                ForEach([0, 30, 45, 60, 90, 120, 150, 180, 240, 300], id: \.self) { s in
+                                    Button("\(s) s") { ex.wrappedValue.restSeconds = s }
+                                }
                             }
                         }
-                        if !isCardio, let x, let top = e.sets.filter({ $0.kind != .warmup }).map(\.kg).max(), top > 0,
-                           !e.sets.contains(where: { $0.kind == .warmup }) {
-                            Button("Adicionar aquecimento", systemImage: "thermometer.medium") {
-                                withAnimation { ex.wrappedValue.sets.insert(contentsOf: WorkoutCoach.warmups(topKg: top, exercise: x), at: 0) }
+                        Section {
+                            if !isCardio, let x, let top = e.sets.filter({ $0.kind != .warmup }).map(\.kg).max(), top > 0,
+                               !e.sets.contains(where: { $0.kind == .warmup }) {
+                                Button("Adicionar aquecimento", systemImage: "thermometer.medium") {
+                                    withAnimation { ex.wrappedValue.sets.insert(contentsOf: WorkoutCoach.warmups(topKg: top, exercise: x), at: 0) }
+                                }
+                            }
+                            if e.sets.contains(where: { !$0.done }) {
+                                Button("Apagar séries não feitas", systemImage: "minus.circle") {
+                                    withAnimation { ex.wrappedValue.sets.removeAll { !$0.done } }
+                                }
                             }
                         }
-                        if let x, !isCardio {
-                            Button("Aparelho ocupado: trocar já", systemImage: "person.2.fill") { quickSwap(ex, from: x) }
+                        Section {
+                            if index > 0 {
+                                Button("Mover para cima", systemImage: "arrow.up") { move(e.id, by: -1) }
+                            }
+                            if index < exercises.count - 1 {
+                                Button("Mover para baixo", systemImage: "arrow.down") { move(e.id, by: 1) }
+                            }
+                            Button("Duplicar exercício", systemImage: "plus.square.on.square") {
+                                var c = e
+                                c.id = UUID()
+                                c.sets = c.sets.map { var s = $0; s.id = UUID(); s.done = false; return s }
+                                withAnimation { exercises.insert(c, at: index + 1) }
+                            }
+                            if let x, !isCardio {
+                                Button("Aparelho ocupado: trocar já", systemImage: "person.2.fill") { quickSwap(ex, from: x) }
+                            }
+                            Button("Substituir exercício", systemImage: "arrow.triangle.2.circlepath") {
+                                replacing = e.id; showPicker = true
+                            }
                         }
-                        Button("Substituir exercício", systemImage: "arrow.triangle.2.circlepath") {
-                            replacing = e.id; showPicker = true
-                        }
-                        Button("Remover", systemImage: "trash", role: .destructive) {
-                            withAnimation { exercises.removeAll { $0.id == e.id } }
-                        }
+                        Button("Remover exercício", systemImage: "trash", role: .destructive) { removeExercise(e.id) }
                     } label: { Image(systemName: "ellipsis.circle").font(.title3) }
                 }
-                if let x, !isCardio, let top = e.doneSets.map(\.kg).max(),
-                   x.load.factor != 1 || x.load.bodyFraction > 0 || x.load.perSide {
-                    Text("≈ \(x.load.real(kg: top, bodyKg: session.bodyKg).fmt(1)) kg reais movidos na série mais pesada")
-                        .font(.caption2).foregroundStyle(Theme.accent2)
-                }
-                if let hint = e.hint, !isCardio {
-                    Label(hint, systemImage: "chart.line.uptrend.xyaxis").font(.caption2.bold()).foregroundStyle(Theme.accent)
-                }
-                if let best, !isCardio {
-                    Text("Recorde: \(best.kg.fmt(1)) kg × \(best.reps) · 1RM estimado \(best.e1RM.fmt(1)) kg")
-                        .font(.caption2).foregroundStyle(Theme.excellent)
-                }
-                HStack {
-                    Text("Série").frame(width: 40, alignment: .leading)
-                    Text("Anterior").frame(maxWidth: .infinity, alignment: .leading)
-                    Text(isCardio ? "min" : "kg").frame(width: 64)
-                    Text(isCardio ? "km" : "reps").frame(width: 52)
-                    Image(systemName: "checkmark").frame(width: 36)
-                }
-                .font(.caption2.bold()).foregroundStyle(.secondary)
-
-                ForEach(e.sets) { s in
-                    let i = e.sets.firstIndex { $0.id == s.id } ?? 0
-                    let b = Binding<SetLog>(
-                        get: { ex.wrappedValue.sets.first { $0.id == s.id } ?? s },
-                        set: { nv in
-                            if let k = ex.wrappedValue.sets.firstIndex(where: { $0.id == s.id }) { ex.wrappedValue.sets[k] = nv }
-                        })
-                    setRow(i: i, set: b, prev: prev.indices.contains(i) ? prev[i] : nil, cardio: isCardio, exercise: e,
-                           best: best?.e1RM ?? 0)
-                }
-                Button {
-                    withAnimation(.spring(duration: 0.3)) {
-                        var s = ex.wrappedValue.sets.last ?? SetLog()
-                        s.id = UUID(); s.done = false; s.kind = .normal
-                        ex.wrappedValue.sets.append(s)
+                if !isCollapsed {
+                    if noteOpen.contains(e.id) || !e.note.isEmpty {
+                        TextField("Nota do exercício (ajuste do banco, pegada, sensação…)", text: ex.note, axis: .vertical)
+                            .font(.caption).lineLimit(1...3).padding(8)
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
                     }
-                } label: {
-                    Label("Adicionar série", systemImage: "plus").font(.subheadline.bold()).frame(maxWidth: .infinity)
+                    if let x, !isCardio, let top = e.doneSets.map(\.kg).max(),
+                       x.load.factor != 1 || x.load.bodyFraction > 0 || x.load.perSide {
+                        Text("≈ \(x.load.real(kg: top, bodyKg: session.bodyKg).fmt(1)) kg reais movidos na série mais pesada")
+                            .font(.caption2).foregroundStyle(Theme.accent2)
+                    }
+                    if let hint = e.hint, !isCardio {
+                        Label(hint, systemImage: "chart.line.uptrend.xyaxis").font(.caption2.bold()).foregroundStyle(Theme.accent)
+                    }
+                    if let best, !isCardio {
+                        Text("Recorde: \(best.kg.fmt(1)) kg × \(best.reps) · 1RM estimado \(best.e1RM.fmt(1)) kg")
+                            .font(.caption2).foregroundStyle(Theme.excellent)
+                    }
+                    HStack {
+                        Text("Série").frame(width: 40, alignment: .leading)
+                        Text("Anterior").frame(maxWidth: .infinity, alignment: .leading)
+                        Text(isCardio ? "min" : "kg").frame(width: 64)
+                        Text(isCardio ? "km" : "reps").frame(width: 56)
+                        Image(systemName: "checkmark").frame(width: 44)
+                    }
+                    .font(.caption2.bold()).foregroundStyle(.secondary)
+
+                    ForEach(e.sets) { s in
+                        let i = e.sets.firstIndex { $0.id == s.id } ?? 0
+                        let b = Binding<SetLog>(
+                            get: { ex.wrappedValue.sets.first { $0.id == s.id } ?? s },
+                            set: { nv in
+                                if let k = ex.wrappedValue.sets.firstIndex(where: { $0.id == s.id }) { ex.wrappedValue.sets[k] = nv }
+                            })
+                        setRow(i: i, set: b, prev: prev.indices.contains(i) ? prev[i] : nil, cardio: isCardio, exercise: e,
+                               best: best?.e1RM ?? 0)
+                            .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
+                    }
+                    // Barra de ações das séries
+                    HStack(spacing: 8) {
+                        Button { addSet(ex) } label: {
+                            Label("Série", systemImage: "plus").font(.subheadline.bold()).frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent).tint(Theme.accent)
+                        Button { removeLastSet(ex) } label: {
+                            Label("Série", systemImage: "minus").font(.subheadline.bold()).frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(e.sets.isEmpty)
+                        if !isCardio {
+                            Button { addDrop(ex) } label: {
+                                Label("Drop", systemImage: "arrow.down.right").font(.subheadline.bold()).frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered).tint(Theme.excellent)
+                            .disabled(e.sets.isEmpty)
+                        }
+                    }
+                } else {
+                    // Resumo do exercício recolhido
+                    Text(e.sets.filter(\.done).map { isCardio ? "\($0.minutes.fmt(0))min" : "\($0.kg.fmt(1))×\($0.reps)" }.joined(separator: "  ·  "))
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(2)
                 }
-                .buttonStyle(.bordered).tint(Theme.accent)
             }
+        }
+        .onChange(of: allDone) { _, done in
+            // recolhe sozinho ao terminar todas as séries (deixa a tela focada no próximo exercício)
+            if done { withAnimation(.spring(duration: 0.4).delay(0.6)) { _ = collapsed.insert(e.id) } }
         }
     }
 
     private func setRow(i: Int, set: Binding<SetLog>, prev: SetLog?, cardio: Bool, exercise: SessionExercise, best: Double) -> some View {
         let s = set.wrappedValue
         let isPR = s.done && !cardio && s.kind != .warmup && s.e1RM > best && best > 0
+        let workIndex = exercise.sets.prefix(i + 1).filter { $0.kind != .warmup }.count
         return HStack {
             Menu {
-                ForEach(SetKind.allCases, id: \.self) { k in
-                    Button(k.label) { set.wrappedValue.kind = k }
-                }
-                Button("Apagar série", role: .destructive) {
-                    if let ei = exercises.firstIndex(where: { $0.id == exercise.id }) {
-                        withAnimation { exercises[ei].sets.removeAll { $0.id == s.id } }
+                Section("Tipo de série") {
+                    ForEach(SetKind.allCases, id: \.self) { k in
+                        Button { set.wrappedValue.kind = k } label: {
+                            if s.kind == k { Label(k.label, systemImage: "checkmark") } else { Text(k.label) }
+                        }
                     }
                 }
+                if !cardio {
+                    Menu(s.rpe.map { "Esforço (RPE): \($0.fmt(1))" } ?? "Esforço (RPE)") {
+                        ForEach([6.0, 7, 7.5, 8, 8.5, 9, 9.5, 10], id: \.self) { r in
+                            Button("RPE \(r.fmt(r.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1)) · \(rpeLabel(r))") { set.wrappedValue.rpe = r }
+                        }
+                        if s.rpe != nil { Button("Limpar RPE", role: .destructive) { set.wrappedValue.rpe = nil } }
+                    }
+                }
+                Section {
+                    Button("Duplicar série", systemImage: "plus.square.on.square") { duplicateSet(s.id, in: exercise.id) }
+                    Button("Inserir série acima", systemImage: "arrow.up.to.line") { insertSet(above: s.id, in: exercise.id) }
+                    if let p = prev {
+                        Button("Usar valores da última vez (\(cardio ? "\(p.minutes.fmt(0)) min" : "\(p.kg.fmt(1)) × \(p.reps)"))", systemImage: "clock.arrow.circlepath") {
+                            set.wrappedValue.kg = p.kg; set.wrappedValue.reps = p.reps
+                            set.wrappedValue.minutes = p.minutes; set.wrappedValue.km = p.km
+                        }
+                    }
+                }
+                Button("Apagar série", systemImage: "trash", role: .destructive) { deleteSet(s.id, in: exercise.id) }
             } label: {
-                Text(s.kind == .normal ? "\(i + 1)" : s.kind.short)
-                    .font(.subheadline.bold())
-                    .foregroundStyle(s.kind == .warmup ? Theme.warm : (s.kind == .normal ? .primary : Theme.excellent))
-                    .frame(width: 40, height: 44, alignment: .leading).contentShape(Rectangle())
+                VStack(spacing: 0) {
+                    Text(s.kind == .normal ? "\(workIndex)" : s.kind.short)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(s.kind == .warmup ? Theme.warm : (s.kind == .normal ? .primary : Theme.excellent))
+                    if let r = s.rpe { Text("@\(r.fmt(r.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1))").font(.system(size: 9).bold()).foregroundStyle(.secondary) }
+                }
+                .frame(width: 40, height: 44, alignment: .leading).contentShape(Rectangle())
             }
-            Group {
-                if let p = prev {
-                    Text(cardio ? "\(p.minutes.fmt(0)) min" : "\(p.kg.fmt(1)) × \(p.reps)")
-                } else { Text("—") }
+            Button {
+                // toque no "anterior" copia os valores da última vez
+                guard let p = prev else { return }
+                set.wrappedValue.kg = p.kg; set.wrappedValue.reps = p.reps
+                set.wrappedValue.minutes = p.minutes; set.wrappedValue.km = p.km
+            } label: {
+                Group {
+                    if let p = prev {
+                        Text(cardio ? "\(p.minutes.fmt(0)) min" : "\(p.kg.fmt(1)) × \(p.reps)")
+                    } else { Text("—") }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .font(.caption).foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
             if cardio {
                 field(value: set.minutes, key: FieldKey(set: s.id, kind: .minutes))
-                field(value: set.km, key: FieldKey(set: s.id, kind: .km), width: 52)
+                field(value: set.km, key: FieldKey(set: s.id, kind: .km), width: 56)
             } else {
                 field(value: set.kg, key: FieldKey(set: s.id, kind: .kg))
-                TextField("0", value: set.reps, format: .number)
-                    .keyboardType(.numberPad).multilineTextAlignment(.center)
+                LiveIntField(value: set.reps)
                     .focused($focus, equals: FieldKey(set: s.id, kind: .reps))
                     .frame(width: 56, height: 44)
                     .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
@@ -297,6 +457,7 @@ struct ActiveWorkoutView: View {
             Button {
                 withAnimation(.spring(duration: 0.3, bounce: 0.4)) { set.wrappedValue.done.toggle() }
                 if set.wrappedValue.done {
+                    focus = nil
                     tick += 1
                     startRest(Double(exercise.restSeconds))
                     let now = set.wrappedValue
@@ -321,6 +482,109 @@ struct ActiveWorkoutView: View {
                     .transition(.scale.combined(with: .opacity))
             }
         }
+        .contextMenu {
+            Button("Duplicar série", systemImage: "plus.square.on.square") { duplicateSet(s.id, in: exercise.id) }
+            Button("Inserir série acima", systemImage: "arrow.up.to.line") { insertSet(above: s.id, in: exercise.id) }
+            Button("Apagar série", systemImage: "trash", role: .destructive) { deleteSet(s.id, in: exercise.id) }
+        }
+    }
+
+    private func rpeLabel(_ r: Double) -> String {
+        switch r {
+        case ..<7: "4+ reps sobrando"
+        case ..<8: "3 reps sobrando"
+        case ..<9: "2 reps sobrando"
+        case ..<10: "1 rep sobrando"
+        default: "até a falha"
+        }
+    }
+
+    // MARK: Ações de séries e exercícios
+
+    private func addSet(_ ex: Binding<SessionExercise>) {
+        withAnimation(.spring(duration: 0.3)) {
+            var s = ex.wrappedValue.sets.last(where: { $0.kind != .warmup }) ?? ex.wrappedValue.sets.last ?? SetLog()
+            s.id = UUID(); s.done = false; s.kind = .normal; s.rpe = nil
+            ex.wrappedValue.sets.append(s)
+            collapsed.remove(ex.wrappedValue.id)
+        }
+    }
+
+    /// Remove a última série ainda não feita (ou a última, se todas estiverem feitas), com opção de desfazer.
+    private func removeLastSet(_ ex: Binding<SessionExercise>) {
+        let sets = ex.wrappedValue.sets
+        guard let target = sets.last(where: { !$0.done }) ?? sets.last else { return }
+        deleteSet(target.id, in: ex.wrappedValue.id)
+    }
+
+    /// Drop-set: nova série com ~20% menos carga, logo após a última.
+    private func addDrop(_ ex: Binding<SessionExercise>) {
+        guard let last = ex.wrappedValue.sets.last else { return }
+        let step = max(WorkoutCoach.increment(ex.wrappedValue.exercise), 1)
+        withAnimation(.spring(duration: 0.3)) {
+            var s = last
+            s.id = UUID(); s.done = false; s.kind = .drop; s.rpe = nil
+            s.kg = WorkoutCoach.round(last.kg * 0.8, step: step)
+            ex.wrappedValue.sets.append(s)
+        }
+    }
+
+    private func duplicateSet(_ id: UUID, in exID: UUID) {
+        guard let ei = exercises.firstIndex(where: { $0.id == exID }),
+              let si = exercises[ei].sets.firstIndex(where: { $0.id == id }) else { return }
+        var s = exercises[ei].sets[si]
+        s.id = UUID(); s.done = false
+        withAnimation(.spring(duration: 0.3)) { exercises[ei].sets.insert(s, at: si + 1) }
+    }
+
+    private func insertSet(above id: UUID, in exID: UUID) {
+        guard let ei = exercises.firstIndex(where: { $0.id == exID }),
+              let si = exercises[ei].sets.firstIndex(where: { $0.id == id }) else { return }
+        var s = exercises[ei].sets[si]
+        s.id = UUID(); s.done = false; s.rpe = nil
+        withAnimation(.spring(duration: 0.3)) { exercises[ei].sets.insert(s, at: si) }
+    }
+
+    private func deleteSet(_ id: UUID, in exID: UUID) {
+        guard let ei = exercises.firstIndex(where: { $0.id == exID }),
+              let si = exercises[ei].sets.firstIndex(where: { $0.id == id }) else { return }
+        let removed = exercises[ei].sets[si]
+        withAnimation(.spring(duration: 0.3)) {
+            exercises[ei].sets.remove(at: si)
+            undo = .set(exercise: exID, index: si, set: removed)
+        }
+    }
+
+    private func removeExercise(_ id: UUID) {
+        guard let i = exercises.firstIndex(where: { $0.id == id }) else { return }
+        let removed = exercises[i]
+        withAnimation(.spring(duration: 0.3)) {
+            exercises.remove(at: i)
+            undo = .exercise(index: i, exercise: removed)
+        }
+    }
+
+    private func performUndo() {
+        guard let u = undo else { return }
+        withAnimation(.spring(duration: 0.3)) {
+            switch u {
+            case .set(let exID, let index, let s):
+                if let ei = exercises.firstIndex(where: { $0.id == exID }) {
+                    exercises[ei].sets.insert(s, at: min(index, exercises[ei].sets.count))
+                    collapsed.remove(exID)
+                }
+            case .exercise(let index, let e):
+                exercises.insert(e, at: min(index, exercises.count))
+            }
+            undo = nil
+        }
+    }
+
+    private func move(_ id: UUID, by delta: Int) {
+        guard let i = exercises.firstIndex(where: { $0.id == id }) else { return }
+        let j = i + delta
+        guard exercises.indices.contains(j) else { return }
+        withAnimation(.spring(duration: 0.35)) { exercises.swapAt(i, j) }
     }
 
     /// Atalho do teclado: soma/subtrai no campo em foco (kg ±2,5 · reps ±1 · min ±1 · km ±0,5).
@@ -358,8 +622,7 @@ struct ActiveWorkoutView: View {
     }
 
     private func field(value: Binding<Double>, key: FieldKey, width: CGFloat = 64) -> some View {
-        TextField("0", value: value, format: .number.precision(.fractionLength(0...2)))
-            .keyboardType(.decimalPad).multilineTextAlignment(.center)
+        LiveNumberField(value: value)
             .focused($focus, equals: key)
             .frame(width: width, height: 44)
             .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
@@ -394,6 +657,7 @@ struct ActiveWorkoutView: View {
         guard seconds > 0 else { return }
         restTotal = seconds
         withAnimation(.spring) { restEnd = Date.now.addingTimeInterval(seconds) }
+        if let e = restEnd { UserDefaults.standard.set([e.timeIntervalSince1970, seconds], forKey: restKey) }
         LiveActivities.update(subtitle: liveSubtitle, restEnd: restEnd)
         let c = UNUserNotificationCenter.current()
         c.removePendingNotificationRequests(withIdentifiers: ["rest"])
@@ -411,6 +675,7 @@ struct ActiveWorkoutView: View {
     private func stopRest() {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["rest"])
         withAnimation(.spring) { restEnd = nil }
+        UserDefaults.standard.removeObject(forKey: restKey)
         LiveActivities.update(subtitle: liveSubtitle, restEnd: nil)
     }
 
@@ -469,6 +734,7 @@ struct ActiveWorkoutView: View {
         exercises = cleaned
         session.exercises = cleaned
         session.end = .now
+        try? context.save()
         let sets = cleaned.map(\.sets.count).reduce(0, +)
         let mins = session.duration / 60
         if sets > 0 {

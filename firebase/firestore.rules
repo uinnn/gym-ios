@@ -1,0 +1,90 @@
+rules_version = '2';
+// Regras do Gym. Backup das anteriores: firebase/firestore.rules.backup
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    // ---------- utilidades
+    function signedIn() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function linkPath(uid) { return /databases/$(db)/documents/users/$(uid)/trainers/$(request.auth.uid); }
+    function isTrainerOf(uid) { return signedIn() && exists(linkPath(uid)); }
+    // Cada coleção pertence a uma categoria que o aluno libera (ou não) para o personal.
+    function scopeOf(col) {
+      return col in ['weights', 'measurements', 'profile'] ? 'body'
+        : col in ['foods', 'water', 'savedFoods', 'fasting'] ? 'food'
+        : col in ['workouts', 'routines', 'cardio'] ? 'training'
+        : col in ['moods', 'sleep', 'practices', 'gratitude', 'habits', 'habitLogs'] ? 'mind'
+        : 'none';
+    }
+    function trainerCanRead(uid, col) {
+      return col == 'meta' || get(linkPath(uid)).data.scopes.get(scopeOf(col), false) == true;
+    }
+    function invite(code) { return get(/databases/$(db)/documents/invites/$(code)).data; }
+
+    // ---------- dados do aluno (sincronização do iPhone e do site)
+    match /users/{uid}/{collection}/{docId} {
+      // O dono faz tudo (como antes).
+      allow read, write: if isOwner(uid);
+      // O personal só lê, e só as categorias liberadas.
+      allow read: if collection != 'trainers' && collection != 'inbox'
+                  && isTrainerOf(uid) && trainerCanRead(uid, collection);
+    }
+
+    // Vínculo aluno → personal. O aluno (dono) edita as categorias e pode remover (regra acima).
+    match /users/{uid}/trainers/{tid} {
+      allow read: if signedIn() && request.auth.uid == tid;
+      // O personal cria o vínculo com um convite válido, do próprio aluno, não usado e dentro do prazo.
+      allow create: if signedIn() && request.auth.uid == tid && request.auth.uid != uid
+                    && request.resource.data.code is string
+                    && invite(request.resource.data.code).student == uid
+                    && !('usedBy' in invite(request.resource.data.code))
+                    && invite(request.resource.data.code).expires > request.time.toMillis()
+                    && request.resource.data.scopes == invite(request.resource.data.code).scopes;
+      // O personal pode sair sozinho.
+      allow delete: if signedIn() && request.auth.uid == tid;
+    }
+
+    // Recados e treinos enviados pelo personal (o aluno lê, marca como lido e apaga pela regra do dono).
+    match /users/{uid}/inbox/{mid} {
+      allow create: if isTrainerOf(uid) && request.resource.data.from == request.auth.uid
+                    && request.resource.data.type in ['note', 'routine'];
+      allow read: if isTrainerOf(uid) && resource.data.from == request.auth.uid;
+      allow delete: if isTrainerOf(uid) && resource.data.from == request.auth.uid;
+    }
+
+    // ---------- convites (código de uso único, válido por 24 h)
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn() && request.resource.data.student == request.auth.uid
+                    && !('usedBy' in request.resource.data);
+      allow delete: if signedIn() && resource.data.student == request.auth.uid;
+      // O personal marca como usado (só esse campo, uma única vez).
+      allow update: if signedIn() && resource.data.student != request.auth.uid
+                    && !('usedBy' in resource.data)
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedBy'])
+                    && request.resource.data.usedBy == request.auth.uid;
+    }
+
+    // ---------- perfil do personal e lista de alunos
+    match /trainers/{tid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == tid;
+      match /students/{sid} {
+        allow read, write: if signedIn() && request.auth.uid == tid;
+        // O aluno também pode se remover da lista do personal.
+        allow read, delete: if signedIn() && request.auth.uid == sid;
+      }
+    }
+
+    // ---------- Party (sem mudanças)
+    match /parties/{code} {
+      allow read, create, update: if request.auth != null;
+      match /events/{e} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      }
+    }
+  }
+}

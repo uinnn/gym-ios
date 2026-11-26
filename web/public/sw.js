@@ -1,7 +1,7 @@
 // Service worker: deixa o site abrir e funcionar sem internet.
 // Os dados ficam no cache do Firestore (o próprio SDK guarda e reenvia as gravações quando a conexão volta).
-const VERSION = "gym-v2";
-const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/edit.js", "/config.js", "/manifest.webmanifest",
+const VERSION = "gym-v3";
+const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/edit.js", "/trainer.js", "/config.js", "/manifest.webmanifest",
   "/data/exercises.json", "/fonts/geist.woff2", "/fonts/geist-mono.woff2", "/fonts/bricolage-grotesque.woff2", "/fonts/silkscreen-400.woff2",
   "/icons/icon-192.png"];
 const SDK = /^https:\/\/www\.gstatic\.com\/firebasejs\//;

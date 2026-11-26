@@ -49,7 +49,7 @@ struct HubOrb: View {
     }
 
     private func orb(_ size: CGFloat) -> some View {
-        let unread = party.unread
+        let unread = party.unread + TrainerService.shared.unread
         return ZStack {
             Circle().fill(Theme.gradient).opacity(0.35).scaleEffect(pulse && unread > 0 ? 1.35 : 1)
             Circle().fill(.ultraThinMaterial)
@@ -83,7 +83,7 @@ struct HubView: View {
     @State private var smart = SmartReminders.enabled
 
     enum HubSheet: String, Identifiable {
-        case sync, assistant, party, chat, achievements, partySettings, profiles, profile, theme, data, scale
+        case trainer, sync, assistant, party, chat, achievements, partySettings, profiles, profile, theme, data, scale
         var id: String { rawValue }
     }
 
@@ -119,6 +119,7 @@ struct HubView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("OK") { dismiss() } } }
             .sheet(item: $sheet) { s in
                 switch s {
+                case .trainer: NavigationStack { TrainerView() }
                 case .sync: NavigationStack { SyncSettingsView() }
                 case .assistant: AssistantView()
                 case .party: PartyView()
@@ -299,6 +300,7 @@ struct HubView: View {
                 tile("Tema", "Cores, fundo e aparência", "paintpalette.fill", .theme)
                 tile("Perfis da família", "Trocar, criar e editar", "person.2.fill", .profiles)
                 tile("Party", "Privacidade e notificações", "person.3.fill", .partySettings)
+                tile("Personal trainer", TrainerService.shared.unread > 0 ? "\(TrainerService.shared.unread) recado(s) ou treino(s) novo(s)" : "Convidar, permissões, recados e treinos", "person.fill.checkmark", .trainer)
                 tile("Sincronização", "Site, conta e modo automático ou manual", "arrow.triangle.2.circlepath.icloud.fill", .sync)
                 tile("Backup", "Importar e exportar dados", "arrow.up.arrow.down.circle.fill", .data)
                 tile("Balança", "Conexão e diagnóstico", "scalemass.fill", .scale)

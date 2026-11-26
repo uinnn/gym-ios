@@ -8,7 +8,8 @@ import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, onSnapshot, doc,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
-import { initEdit, addBtn, rowActions, fab, openForm } from "./edit.js";
+import { initEdit, addBtn, rowActions as editRowActions, fab as editFab, openForm } from "./edit.js";
+import { initTrainer, startTrainer, stopTrainer, watchSent, viewAlunos, studentBanner, sentCard, inboxCard, studentSection, trainerSection, scopeOf, T } from "./trainer.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -29,6 +30,8 @@ function applyTheme() {
   s.setProperty("--brand", a); s.setProperty("--brand2", b); s.setProperty("--brand3", c);
 }
 applyTheme();
+initTrainer({ db, auth, esc: (x) => esc(x), nf: (v, d) => nf(v, d), rel: (m) => rel(m), shell: (...a) => shell(...a), rerender: () => scheduleRender(),
+  summary: () => summary, viewing: () => viewing, openStudent: (id) => openStudent(id), exitStudent: () => exitStudent(), toast: (t) => toast(t), exName: (id) => exName(id) });
 const editCtx = { db, auth, store: null, summary: () => summary, esc: (s) => esc(s), nf: (v, d) => nf(v, d) };
 initEdit(editCtx);
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
@@ -72,10 +75,19 @@ const pendingWrites = {};
 const pendingTotal = () => Object.values(pendingWrites).reduce((a, b) => a + b, 0);
 let loaded = new Set();
 
-function listen(uid) {
+/** Aluno que o personal está vendo agora ({uid, name, scopes}) ou null (minha própria conta). */
+let viewing = null;
+const rowActions = (...a) => (viewing ? "" : editRowActions(...a));
+const fab = () => (viewing ? "" : editFab());
+
+function listen(uid, scopes = null) {
   unsubs.forEach((u) => u());
   loaded = new Set();
-  unsubs = COLS.map((c) => onSnapshot(collection(db, "users", uid, c), { includeMetadataChanges: true }, (snap) => {
+  COLS.forEach((c) => store[c].clear());
+  summary = null; lastServer = 0;
+  const cols = scopes ? COLS.filter((c) => scopes[scopeOf(c)]) : COLS;
+  COLS.filter((c) => !cols.includes(c)).forEach((c) => loaded.add(c));
+  unsubs = cols.map((c) => onSnapshot(collection(db, "users", uid, c), { includeMetadataChanges: true }, (snap) => {
     loaded.add(c);
     pendingWrites[c] = snap.docs.filter((d) => d.metadata.hasPendingWrites).length;
     snap.docChanges().forEach((ch) => {
@@ -214,11 +226,53 @@ const ACTIONS = {
 let foodDay = day(Date.now());
 let weightRange = 90;
 let microGroup = "Vitaminas";
-const page = () => { const h = location.hash.replace("#/", ""); return ROUTES.some((r) => r[0] === h) ? h : "painel"; };
+/** Páginas visíveis: o personal só vê as categorias que o aluno liberou. */
+const NEEDS = { corpo: "body", alimentacao: "food", treinos: "training", mente: "mind" };
+function routes() {
+  if (viewing) return ROUTES.filter(([id]) => id !== "conta" && (!NEEDS[id] || viewing.scopes?.[NEEDS[id]]));
+  return T.isTrainer ? [...ROUTES.slice(0, -1), ["alunos", "Alunos", "🧑‍🏫"], ROUTES.at(-1)] : ROUTES;
+}
+const page = () => { const h = location.hash.replace("#/", ""); return h === "alunos" || routes().some((r) => r[0] === h) ? h : "painel"; };
+
+async function openStudent(sid) {
+  const st = T.students.find((x) => x.id === sid);
+  if (!st) return;
+  // as permissões valem pelo vínculo na conta do aluno (o aluno pode ter mudado)
+  let scopes = st.scopes || {};
+  try {
+    const { getDoc: gd, doc: dd } = await import("https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js");
+    const l = await gd(dd(db, "users", sid, "trainers", auth.currentUser.uid));
+    if (!l.exists()) { toast("Este aluno removeu seu acesso."); return; }
+    scopes = l.data().scopes || scopes;
+  } catch { /* usa as permissões guardadas */ }
+  viewing = { uid: sid, name: T.studentSummaries[sid]?.profileName || st.name, scopes };
+  lastError = "";
+  listen(sid, scopes);
+  watchSent(sid);
+  location.hash = "#/painel";
+  lastPage = "";
+  render();
+}
+function exitStudent() {
+  if (!viewing) return;
+  viewing = null;
+  watchSent(null);
+  listen(auth.currentUser.uid);
+  location.hash = "#/alunos";
+  lastPage = "";
+  render();
+}
+function toast(t) {
+  const d = document.createElement("div");
+  d.className = "toast glass"; d.textContent = t;
+  document.body.appendChild(d);
+  setTimeout(() => d.classList.add("out"), 2600);
+  setTimeout(() => d.remove(), 3100);
+}
 
 function shell(content, title, sub = "") {
   const p = page();
-  const nav = (cls) => ROUTES.map(([id, label, ic]) => `<a href="#/${id}" class="${p === id ? "on" : ""}"><span class="ic">${ic}</span>${label}</a>`).join("");
+  const nav = (cls) => routes().map(([id, label, ic]) => `<a href="#/${id}" class="${p === id ? "on" : ""}"><span class="ic">${ic}</span>${label}</a>`).join("");
   return `<div class="shell">
     <aside class="side"><div class="panel glass">
       <div class="brand"><div class="logo">${esc(summary?.emoji || "🏋️")}</div>Gym</div>
@@ -228,10 +282,11 @@ function shell(content, title, sub = "") {
     <main class="main">
       <div class="top reveal"><div><span class="eyebrow">${esc(summary?.profileName || "Gym")}</span><h1 class="display" style="margin-top:12px">${title}</h1>${sub ? `<div class="sub">${sub}</div>` : ""}</div>
         <span style="display:flex;gap:8px;flex-wrap:wrap">${!navigator.onLine ? `<span class="badge warn">Offline${pendingTotal() ? ` · ${pendingTotal()} para enviar` : ""}</span>` : pendingTotal() ? `<span class="badge warn">Enviando ${pendingTotal()}…</span>` : ""}
-        <span class="badge">${summary?.updated ? `<span class="live"></span>iPhone ${rel(summary.updated)}` : "Aguardando o iPhone"}</span></span></div>
+        <span class="badge">${summary?.updated ? `<span class="live"></span>${viewing ? "Aluno sincronizou" : "iPhone"} ${rel(summary.updated)}` : viewing ? "Aluno ainda não sincronizou" : "Aguardando o iPhone"}</span></span></div>
       ${lastError ? `<div class="msg err">${esc(lastError)}</div>` : ""}
       ${updateReady ? `<div class="msg info">Nova versão do site disponível. <a href="#" id="upd">Atualizar agora</a></div>` : ""}
-      ${ACTIONS[page()] ? `<div class="chips" style="margin:-8px 0 18px">${ACTIONS[page()]}</div>` : ""}
+      ${studentBanner()}
+      ${!viewing && ACTIONS[page()] ? `<div class="chips" style="margin:-8px 0 18px">${ACTIONS[page()]}</div>` : ""}
       ${content}
     </main>
     <nav class="mobilebar glass">${nav()}</nav>
@@ -263,6 +318,7 @@ function viewPainel() {
   ].sort((a, b) => b.t - a.t).slice(0, 9);
 
   return shell(`
+    ${inboxCard()}
     <div class="grid g3 stagger">
       <div class="card hero span2">
         <div><span class="eyebrow">Prontidão para treinar</span>
@@ -299,7 +355,7 @@ function viewPainel() {
             <div style="text-align:right"><b class="num">${nf(k, 0)}</b>${goal ? `<div class="tiny subtle num">/${nf(goal * share, 0)}</div>` : ""}</div></div>`;
         }).join("")}</div>
       <div class="card">${head("Atividade recente")}<div class="list">${recent.map((x) => `<div class="item"><div class="avatar">${x.ic}</div><div class="grow"><div class="title">${esc(x.title)}</div><div class="meta">${esc(x.meta)}</div></div><span class="tiny subtle num">${fmtDate(x.t)} ${fmtTime(x.t)}</span></div>`).join("") || `<div class="empty">Sem registros ainda.</div>`}</div></div>
-    </div>`, `${greet}${name ? ", " + esc(name) : ""}`, new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }));
+    </div>${sentCard()}`, viewing ? esc(viewing.name) : `${greet}${name ? ", " + esc(name) : ""}`, new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }));
 }
 
 function viewCorpo() {
@@ -538,6 +594,8 @@ function viewConta() {
       <div class="card">${head("Aparência")}
         <div class="field"><label>Tema</label><div class="seg" id="theme">${[["dark", "Escuro"], ["light", "Claro"], ["system", "Sistema"]].map(([v, l]) => `<button data-t="${v}" class="${theme === v ? "on" : ""}">${l}</button>`).join("")}</div></div>
         <div class="field"><label>Cor</label><div class="swatches">${ACCENTS.map(([a, b], i) => `<div class="swatch ${accent === i ? "on" : ""}" data-a="${i}" style="background:linear-gradient(135deg,${a},${b})"></div>`).join("")}</div></div></div>
+      <div class="card">${head("Meu personal trainer")}${studentSection()}</div>
+      <div class="card">${head("Sou personal trainer")}${trainerSection()}</div>
       <div class="card spanall">${head("App no celular e no computador")}${installCard()}</div>
       <div class="card spanall">${head("Sincronização")}<div class="small muted">
         O iPhone envia os registros (modo automático ou manual, em Central → Sincronização) e um resumo com metas e cálculos sempre que o app abre.
@@ -623,11 +681,11 @@ function render() {
   if (!authReady) return;
   const u = auth.currentUser;
   if (!u) { root.className = ""; root.innerHTML = viewLogin(); bindLogin(); return; }
-  if (!loaded.has("summary") && loaded.size < 3) { root.className = "boot"; root.innerHTML = `<div class="spinner"></div>`; return; }
+  if (page() !== "alunos" && !loaded.has("summary") && loaded.size < 3) { root.className = "boot"; root.innerHTML = `<div class="spinner"></div>`; return; }
   root.className = "";
   const p = page();
   const y = scrollY;
-  root.innerHTML = { painel: viewPainel, corpo: viewCorpo, alimentacao: viewAlimentacao, treinos: viewTreinos, mente: viewMente, metricas: viewMetricas, conta: viewConta }[p]();
+  root.innerHTML = { painel: viewPainel, corpo: viewCorpo, alimentacao: viewAlimentacao, treinos: viewTreinos, mente: viewMente, metricas: viewMetricas, conta: viewConta, alunos: viewAlunos }[p]();
   if (p === lastPage) scrollTo(0, y); else scrollTo(0, 0);
   if (p !== lastPage) root.querySelectorAll(".reveal, .stagger > *").forEach((e) => e.style.animationPlayState = "running");
   else root.querySelectorAll(".reveal, .stagger > *, .bar > i, .line, rect.b").forEach((e) => e.style.animation = "none");
@@ -693,7 +751,8 @@ onAuthStateChanged(auth, (u) => {
   authReady = true;
   COLS.forEach((c) => store[c].clear());
   summary = null; lastError = ""; lastPage = "";
-  if (u) listen(u.uid); else { unsubs.forEach((x) => x()); unsubs = []; }
+  viewing = null;
+  if (u) { listen(u.uid); startTrainer(u.uid); } else { unsubs.forEach((x) => x()); unsubs = []; stopTrainer(); }
   render();
 });
 window.addEventListener("hashchange", render);

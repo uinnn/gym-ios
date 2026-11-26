@@ -767,6 +767,7 @@ final class SyncEngine {
             await pull()
             if mode == .auto { await uploadPending() }
             await sendSummary()
+            await TrainerService.shared.refresh()
         }
     }
 

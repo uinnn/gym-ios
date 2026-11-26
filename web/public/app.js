@@ -202,7 +202,7 @@ const noTargets = `<div class="msg info">As metas vêm do iPhone. Abra o app com
 
 // ================================================================ telas
 const ROUTES = [["painel", "Painel", "◉"], ["corpo", "Corpo", "⚖︎"], ["alimentacao", "Alimentação", "🍽"],
-  ["treinos", "Treinos", "🏋"], ["mente", "Mente", "☾"], ["conta", "Conta", "⚙︎"]];
+  ["treinos", "Treinos", "🏋"], ["mente", "Mente", "☾"], ["metricas", "Métricas", "📊"], ["conta", "Conta", "⚙︎"]];
 const ACTIONS = {
   painel: [["weight", "Pesagem"], ["food", "Alimento"], ["water", "Água"], ["workout", "Treino"], ["mood", "Humor"]].map(([k, l]) => addBtn(k, l)).join(""),
   corpo: [["weight", "Pesagem"], ["measure", "Medidas"], ["profile", "Perfil e metas"]].map(([k, l]) => addBtn(k, l)).join(""),
@@ -503,6 +503,23 @@ function viewMente() {
     </tbody></table></div></div>`, "Mente", "Humor, sono, práticas e hábitos");
 }
 
+function viewMetricas() {
+  const groups = summary?.advanced || [];
+  const icon = { "Nutrição": "🍽", "Treino": "🏋", "Cardio": "🏃", "Sono e mente": "☾", "Corpo": "⚖︎" };
+  const toneBadge = (t) => ({ good: "good", warn: "warn", bad: "bad", info: "brand" }[t] || "");
+  const toneBar = (t) => ({ good: "good", warn: "warn", bad: "bad" }[t] || "");
+  if (!groups.length) return shell(`<div class="card empty">As métricas avançadas são calculadas no iPhone. Abra o app com a sincronização ligada para elas aparecerem aqui.</div>`, "Métricas");
+  return shell(groups.map((g) => `${section(`${icon[g.title] || "◆"} ${esc(g.title)}`)}
+    <div class="grid g2 stagger">${g.items.map((m) => `<div class="card">
+      <div class="card-head"><span class="eyebrow">${esc(m.title)}</span>${m.status ? `<span class="right badge ${toneBadge(m.tone)}">${esc(m.status)}</span>` : ""}</div>
+      <div class="kpi"><div class="value" style="margin-top:0">${esc(m.value)}${m.unit ? `<small>${esc(m.unit)}</small>` : ""}</div></div>
+      ${m.progress != null ? bar(m.progress, toneBar(m.tone)) : ""}
+      ${(m.rows || []).length ? `<div class="kv" style="margin-top:14px">${m.rows.map((r) => `<span>${esc(r.label)}</span><span style="text-align:right">${esc(r.value)}</span>`).join("")}</div>` : ""}
+      ${m.detail ? `<details style="margin-top:12px"><summary class="tiny" style="cursor:pointer;color:var(--brand)">Como é calculado</summary><div class="small muted" style="margin-top:6px">${esc(m.detail)}</div></details>` : ""}
+    </div>`).join("")}</div>`).join("") + `<div class="tiny subtle" style="margin-top:18px">Estimativas calculadas no iPhone para acompanhar tendências; não substituem avaliação profissional. Atualizado ${summary?.updated ? rel(summary.updated) : "—"}.</div>`,
+  "Métricas", "Gasto real, força, carga de treino, VO₂max, sono e seus padrões");
+}
+
 function viewConta() {
   const u = auth.currentUser;
   const providers = (u?.providerData || []).map((p) => p.providerId);
@@ -610,7 +627,7 @@ function render() {
   root.className = "";
   const p = page();
   const y = scrollY;
-  root.innerHTML = { painel: viewPainel, corpo: viewCorpo, alimentacao: viewAlimentacao, treinos: viewTreinos, mente: viewMente, conta: viewConta }[p]();
+  root.innerHTML = { painel: viewPainel, corpo: viewCorpo, alimentacao: viewAlimentacao, treinos: viewTreinos, mente: viewMente, metricas: viewMetricas, conta: viewConta }[p]();
   if (p === lastPage) scrollTo(0, y); else scrollTo(0, 0);
   if (p !== lastPage) root.querySelectorAll(".reveal, .stagger > *").forEach((e) => e.style.animationPlayState = "running");
   else root.querySelectorAll(".reveal, .stagger > *, .bar > i, .line, rect.b").forEach((e) => e.style.animation = "none");

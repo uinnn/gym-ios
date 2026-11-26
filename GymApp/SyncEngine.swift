@@ -710,6 +710,7 @@ final class SyncEngine {
         p["exercises"] = Dictionary(uniqueKeysWithValues: ExerciseCatalog.all.map {
             ($0.id, ["n": $0.name, "m": $0.primary.first?.label ?? ""])
         })
+        p["advanced"] = AdvancedMetrics.compute(context: context).map(\.dict)
         let st = StretchStore.shared
         p["stretch"] = ["weekMinutes": st.weekMinutes, "streak": st.streak, "conditions": st.conditions.map(\.title).sorted(),
                         "history": st.history.suffix(20).map { ["date": $0.date.timeIntervalSince1970 * 1000, "name": $0.name, "seconds": $0.seconds] }]

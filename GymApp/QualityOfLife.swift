@@ -55,6 +55,7 @@ final class UndoCenter {
     }
 }
 
+@MainActor
 extension ModelContext {
     /// Apaga e oferece "Desfazer" por 5 s.
     func deleteUndoable<T: PersistentModel>(_ model: T, _ label: String = "Apagado") {

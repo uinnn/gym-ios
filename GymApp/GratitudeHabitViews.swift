@@ -81,7 +81,7 @@ struct GratitudeHistoryView: View {
                         }
                     }
                 }
-                .onDelete { idx in idx.forEach { context.delete(entries[$0]) } }
+                .onDelete { idx in idx.forEach { context.deleteUndoable(entries[$0]) } }
             }
             .navigationTitle("Diário de gratidão")
             .navigationBarTitleDisplayMode(.inline)
@@ -143,7 +143,7 @@ struct HabitsCard: View {
                             }
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                     }
                 }
             }
@@ -199,7 +199,7 @@ struct HabitManagerView: View {
                                 Image(systemName: i).frame(width: 36, height: 36)
                                     .foregroundStyle(icon == i ? .white : Palette.all[color].accent)
                                     .background(icon == i ? AnyShapeStyle(Palette.all[color].accent) : AnyShapeStyle(.quaternary), in: Circle())
-                                    .onTapGesture { icon = i }
+                                    .hitTarget().onTapGesture { icon = i }
                             }
                         }
                     }
@@ -208,7 +208,7 @@ struct HabitManagerView: View {
                             ForEach(Palette.all.indices, id: \.self) { i in
                                 Circle().fill(Palette.all[i].accent).frame(width: 26, height: 26)
                                     .overlay(Circle().strokeBorder(.primary, lineWidth: color == i ? 2 : 0))
-                                    .onTapGesture { color = i }
+                                    .hitTarget().onTapGesture { color = i }
                             }
                         }
                     }

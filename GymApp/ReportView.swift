@@ -52,7 +52,7 @@ struct ReportView: View {
             }
             .confirmationDialog("Apagar esta pesagem?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Apagar", role: .destructive) {
-                    context.delete(entry)
+                    context.deleteUndoable(entry, "Pesagem apagada")
                     dismiss()
                 }
             }
@@ -307,7 +307,7 @@ struct ReportView: View {
                                 .foregroundStyle(on ? .white : .primary)
                                 .background(on ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(.quaternary), in: Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                     }
                 }
                 TextField("Anotação (como se sentiu, o que comeu…)", text: $entry.note, axis: .vertical)

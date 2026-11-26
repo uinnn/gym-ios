@@ -371,14 +371,14 @@ struct PartyFeedCard: View {
                                         .padding(.horizontal, 7).padding(.vertical, 3)
                                         .background(isMine ? Theme.accent.opacity(0.25) : Color.secondary.opacity(0.1), in: Capsule())
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.tap)
                                 .opacity(n > 0 || !service.isMe(e.member) ? 1 : 0.5)
                             }
                             Spacer()
                             Button { commenting = e } label: {
                                 Label("\(comments[e.id] ?? 0)", systemImage: "bubble.left").font(.caption)
                             }
-                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                            .buttonStyle(.tap).foregroundStyle(.secondary)
                         }
                         .padding(.leading, 40)
                     }

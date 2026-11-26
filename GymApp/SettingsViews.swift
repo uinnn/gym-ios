@@ -160,7 +160,7 @@ struct ThemeSettingsView: View {
                                 else { RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.quaternary) }
                             }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                     }
                 }
             }
@@ -199,7 +199,7 @@ struct ThemeSettingsView: View {
                 Text(name).font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
     }
 
     // MARK: Visual
@@ -270,7 +270,7 @@ struct ThemeSettingsView: View {
                             .foregroundStyle(on ? .white : .primary)
                             .background(on ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(.quaternary), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                     }
                 }
             }
@@ -323,7 +323,7 @@ struct ThemeSettingsView: View {
                 .foregroundStyle(on ? .white : .primary)
                 .background(on ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(.quaternary), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
     }
 }
 

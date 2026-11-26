@@ -64,11 +64,11 @@ struct NutrientsDayCard: View {
                             }
                             .foregroundStyle(.primary)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                         if expanded.contains(g) {
                             ForEach(rows, id: \.0) { id, v, r in
                                 Button { onSelect(id) } label: { row(id, v, r) }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(.tap)
                                     .transition(.opacity.combined(with: .move(edge: .top)))
                             }
                         }

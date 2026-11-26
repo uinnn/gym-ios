@@ -136,7 +136,7 @@ struct PartyView: View {
                             Button {
                                 service.post(.nudge, "cutucou \(m.member.name): bora se mexer hoje? 👉", target: m.id)
                             } label: { Text("👉").font(.title3) }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.tap)
                         }
                         VStack(alignment: .trailing) {
                             Text("\(m.points)").font(.headline)

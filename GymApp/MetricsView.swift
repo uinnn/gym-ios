@@ -221,7 +221,7 @@ struct MetricsView: View {
                     }
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
     }
 }
 
@@ -229,6 +229,8 @@ struct MetricsView: View {
 struct PressableStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .animation(.spring(duration: 0.25), value: configuration.isPressed)
     }

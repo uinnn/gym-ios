@@ -256,7 +256,7 @@ struct ProgramGeneratorSheet: View {
                                     .background(on ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(.quaternary),
                                                 in: RoundedRectangle(cornerRadius: 10))
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.tap)
                         }
                     }
                 } header: { Text("Dias de treino (\(prefs.days.count))") } footer: {
@@ -358,7 +358,7 @@ struct ProgramGeneratorSheet: View {
                         .foregroundStyle(on ? .white : .primary)
                         .background(on ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(.quaternary), in: Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
             }
         }
         .padding(.vertical, 4)
@@ -440,7 +440,7 @@ struct RoutineEditorView: View {
                                         .foregroundStyle(routine.icon == i ? .white : Theme.accent)
                                         .background(routine.icon == i ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(.quaternary), in: Circle())
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.tap)
                             }
                         }
                     }
@@ -488,7 +488,7 @@ struct RoutineEditorView: View {
                 }
             }
             .confirmationDialog("Apagar \"\(routine.name)\"?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("Apagar", role: .destructive) { context.delete(routine); dismiss() }
+                Button("Apagar", role: .destructive) { context.deleteUndoable(routine, "Rotina apagada"); dismiss() }
             }
             .onAppear { items = routine.items }
         }
@@ -521,7 +521,7 @@ struct RoutineEditorView: View {
                         }
                     }
                 } label: { Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(Theme.accent) }
-                .buttonStyle(.borderless)
+                .buttonStyle(.tap)
             }
             Stepper("\(it.sets) séries", value: item.sets, in: 1...10).font(.caption)
             if cardio {

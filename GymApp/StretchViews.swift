@@ -331,7 +331,7 @@ struct StretchHomeView: View {
                 .foregroundStyle(on ? .white : .primary)
                 .background(on ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(.quaternary), in: Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
     }
 }
 

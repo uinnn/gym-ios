@@ -71,7 +71,7 @@ struct SleepLogSheet: View {
                     Button("Salvar") { save() }.bold().disabled(hours <= 0 || hours > 20)
                 }
                 if let e = existing {
-                    ToolbarItem(placement: .bottomBar) { Button("Apagar", role: .destructive) { context.delete(e); dismiss() } }
+                    ToolbarItem(placement: .bottomBar) { Button("Apagar", role: .destructive) { context.deleteUndoable(e); dismiss() } }
                 }
             }
             .onAppear {
@@ -286,7 +286,7 @@ struct SleepView: View {
                         .foregroundStyle(.primary)
                         .padding(.vertical, 8).contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
                     Divider()
                 }
             }

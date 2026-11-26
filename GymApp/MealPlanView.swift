@@ -216,7 +216,7 @@ struct MealPlanView: View {
                         Button {
                             swaps["\(m.meal.rawValue)-\(item.role.rawValue)", default: 0] += 1
                         } label: { Image(systemName: "arrow.triangle.2.circlepath") }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.tap)
                     }
                     .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
                 }

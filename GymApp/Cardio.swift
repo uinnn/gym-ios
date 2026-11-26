@@ -419,7 +419,7 @@ struct CardioCard: View {
                                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                             }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                     }
                 } else {
                     Text("Corrida, caminhada ou pedalada com mapa, ritmo, parciais por km e calorias.")

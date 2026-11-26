@@ -207,7 +207,7 @@ struct MealCombosSection: View {
                                 Image(systemName: "plus.circle.fill").font(.title3).foregroundStyle(Theme.accent)
                             }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                     }
                 } header: { Text("Refeições frequentes · um toque") }
         }
@@ -616,6 +616,6 @@ struct InsightsHubCard: View {
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
     }
 }

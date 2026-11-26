@@ -167,7 +167,7 @@ struct CompareView: View {
             Text(t).font(.caption.bold()).padding(.horizontal, 10).padding(.vertical, 6)
                 .background(Theme.accent.opacity(0.15), in: Capsule()).foregroundStyle(Theme.accent)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
     }
 
     private func weekly(_ byDate: [CompareColumn], _ n: Int) -> [String] {

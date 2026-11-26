@@ -55,7 +55,9 @@ struct ActiveWorkoutView: View {
     @State private var summary: WorkoutSession?
     @State private var prFlash: UUID?
     @State private var tick = 0
-    @FocusState private var focused: Bool
+    /// Campo em edição (série + qual valor): os atalhos do teclado agem sobre ele.
+    struct FieldKey: Hashable { enum Kind { case kg, reps, minutes, km }; let set: UUID; let kind: Kind }
+    @FocusState private var focus: FieldKey?
 
     private var past: [WorkoutSession] { history.filter { !$0.isActive && $0.persistentModelID != session.persistentModelID } }
 
@@ -95,8 +97,18 @@ struct ActiveWorkoutView: View {
                     Button("Finalizar") { finish() }.bold().tint(Theme.good)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
+                    if let f = focus {
+                        let step: Double = f.kind == .kg ? 2.5 : (f.kind == .km ? 0.5 : 1)
+                        Button { bump(f, -step) } label: { Text("−\(step.fmt(step < 1 || f.kind == .kg ? 1 : 0))").bold().frame(minWidth: 52, minHeight: 36) }
+                            .buttonStyle(.bordered)
+                        Button { bump(f, step) } label: { Text("+\(step.fmt(step < 1 || f.kind == .kg ? 1 : 0))").bold().frame(minWidth: 52, minHeight: 36) }
+                            .buttonStyle(.bordered)
+                        Button { copyPrevious(f) } label: { Image(systemName: "arrow.down.to.line").frame(minWidth: 44, minHeight: 36) }
+                            .buttonStyle(.bordered)
+                            .accessibilityLabel("Igual à série anterior")
+                    }
                     Spacer()
-                    Button("OK") { focused = false }
+                    Button("OK") { focus = nil }.bold()
                 }
             }
             .sheet(isPresented: $showPicker) {
@@ -175,7 +187,7 @@ struct ActiveWorkoutView: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
                     Spacer()
                     Menu {
                         Menu("Descanso: \(e.restSeconds) s") {
@@ -262,7 +274,7 @@ struct ActiveWorkoutView: View {
                 Text(s.kind == .normal ? "\(i + 1)" : s.kind.short)
                     .font(.subheadline.bold())
                     .foregroundStyle(s.kind == .warmup ? Theme.warm : (s.kind == .normal ? .primary : Theme.excellent))
-                    .frame(width: 40, alignment: .leading)
+                    .frame(width: 40, height: 44, alignment: .leading).contentShape(Rectangle())
             }
             Group {
                 if let p = prev {
@@ -272,14 +284,14 @@ struct ActiveWorkoutView: View {
             .font(.caption).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             if cardio {
-                field(value: set.minutes)
-                field(value: set.km, width: 52)
+                field(value: set.minutes, key: FieldKey(set: s.id, kind: .minutes))
+                field(value: set.km, key: FieldKey(set: s.id, kind: .km), width: 52)
             } else {
-                field(value: set.kg)
+                field(value: set.kg, key: FieldKey(set: s.id, kind: .kg))
                 TextField("0", value: set.reps, format: .number)
                     .keyboardType(.numberPad).multilineTextAlignment(.center)
-                    .focused($focused)
-                    .frame(width: 52, height: 34)
+                    .focused($focus, equals: FieldKey(set: s.id, kind: .reps))
+                    .frame(width: 56, height: 44)
                     .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
             }
             Button {
@@ -295,9 +307,9 @@ struct ActiveWorkoutView: View {
                     .font(.title2)
                     .foregroundStyle(s.done ? Theme.good : .secondary)
                     .symbolEffect(.bounce, value: s.done)
-                    .frame(width: 36)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.tap)
         }
         .padding(.vertical, 3)
         .background(s.done ? Theme.good.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 8))
@@ -311,11 +323,45 @@ struct ActiveWorkoutView: View {
         }
     }
 
-    private func field(value: Binding<Double>, width: CGFloat = 64) -> some View {
+    /// Atalho do teclado: soma/subtrai no campo em foco (kg ±2,5 · reps ±1 · min ±1 · km ±0,5).
+    private func bump(_ f: FieldKey, _ d: Double) {
+        guard let loc = locate(f.set) else { return }
+        let (ei, si) = loc
+        var x = exercises[ei].sets[si]
+        switch f.kind {
+        case .kg: x.kg = max(0, x.kg + d)
+        case .reps: x.reps = max(0, x.reps + Int(d))
+        case .minutes: x.minutes = max(0, x.minutes + d)
+        case .km: x.km = max(0, x.km + d)
+        }
+        exercises[ei].sets[si] = x
+    }
+
+    /// Copia o valor da série anterior do mesmo exercício.
+    private func copyPrevious(_ f: FieldKey) {
+        guard let loc = locate(f.set), loc.1 > 0 else { return }
+        let (ei, si) = loc
+        let p = exercises[ei].sets[si - 1]
+        switch f.kind {
+        case .kg: exercises[ei].sets[si].kg = p.kg
+        case .reps: exercises[ei].sets[si].reps = p.reps
+        case .minutes: exercises[ei].sets[si].minutes = p.minutes
+        case .km: exercises[ei].sets[si].km = p.km
+        }
+    }
+
+    private func locate(_ id: UUID) -> (Int, Int)? {
+        for (ei, e) in exercises.enumerated() {
+            if let si = e.sets.firstIndex(where: { $0.id == id }) { return (ei, si) }
+        }
+        return nil
+    }
+
+    private func field(value: Binding<Double>, key: FieldKey, width: CGFloat = 64) -> some View {
         TextField("0", value: value, format: .number.precision(.fractionLength(0...2)))
             .keyboardType(.decimalPad).multilineTextAlignment(.center)
-            .focused($focused)
-            .frame(width: width, height: 34)
+            .focused($focus, equals: key)
+            .frame(width: width, height: 44)
             .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
     }
 
@@ -513,7 +559,7 @@ struct WorkoutSummaryView: View {
                                                 .scaleEffect(session.rating == i ? 1.3 : 1)
                                                 .opacity(session.rating == 0 || session.rating == i ? 1 : 0.4)
                                         }
-                                        .buttonStyle(.plain).frame(maxWidth: .infinity)
+                                        .buttonStyle(.tap).frame(maxWidth: .infinity)
                                     }
                                 }
                                 TextField("Anotações do treino", text: $session.note, axis: .vertical)

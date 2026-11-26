@@ -95,8 +95,8 @@ struct ExercisePickerView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            Button { detail = e } label: { Image(systemName: "info.circle") }.buttonStyle(.borderless)
+            .buttonStyle(.tap)
+            Button { detail = e } label: { Image(systemName: "info.circle") }.buttonStyle(.tap)
         }
     }
 }

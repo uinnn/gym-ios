@@ -394,3 +394,31 @@ extension Double {
         (self > 0 ? "+" : "") + fmt(digits)
     }
 }
+
+// MARK: - Área de toque (Apple HIG: mínimo 44 × 44 pt)
+
+/// Estilo de botão do app: a área tocável é sempre o retângulo inteiro do rótulo
+/// (inclusive espaços vazios e Spacers) e nunca menor que 44 × 44 pt.
+/// Substitui `.plain`/`.borderless`, que só respondem onde há pixels desenhados.
+struct TapStyle: ButtonStyle {
+    var minSize: CGFloat = 44
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(minWidth: minSize, minHeight: minSize)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.55 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == TapStyle {
+    /// `.buttonStyle(.tap)` — botão com área de toque generosa.
+    static var tap: TapStyle { TapStyle() }
+}
+
+extension View {
+    /// Aumenta a área de toque de qualquer elemento (ex.: `onTapGesture`) para ≥ 44 pt sem mudar o visual.
+    func hitTarget(_ size: CGFloat = 44) -> some View {
+        frame(minWidth: size, minHeight: size).contentShape(Rectangle())
+    }
+}

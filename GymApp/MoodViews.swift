@@ -24,7 +24,7 @@ struct DotScale: View {
                             .frame(width: i == value ? 34 : 28, height: i == value ? 34 : 28)
                             .overlay { if i == value { Text("\(i)").font(.caption.bold()).foregroundStyle(.white) } }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
                     .frame(maxWidth: .infinity)
                 }
             }
@@ -72,7 +72,7 @@ struct MoodCheckInSheet: View {
                                                     in: RoundedRectangle(cornerRadius: 14))
                                         .scaleEffect(mood == i ? 1.1 : 1)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.tap)
                             }
                         }
                         Card {
@@ -96,7 +96,7 @@ struct MoodCheckInSheet: View {
                                                 .foregroundStyle(on ? .white : .primary)
                                                 .background(on ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(.quaternary), in: Capsule())
                                         }
-                                        .buttonStyle(.plain)
+                                        .buttonStyle(.tap)
                                     }
                                 }
                                 TextField("Quer escrever algo? (opcional)", text: $note, axis: .vertical)
@@ -116,7 +116,7 @@ struct MoodCheckInSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Salvar") { save() }.bold() }
                 if let e = existing {
                     ToolbarItem(placement: .bottomBar) {
-                        Button("Apagar", role: .destructive) { context.delete(e); dismiss() }
+                        Button("Apagar", role: .destructive) { context.deleteUndoable(e); dismiss() }
                     }
                 }
             }
@@ -317,7 +317,7 @@ struct MoodHistoryView: View {
                         .padding(.vertical, 8)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
                     Divider()
                 }
             }

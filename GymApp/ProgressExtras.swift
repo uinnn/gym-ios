@@ -97,7 +97,7 @@ struct ProgressPhotosView: View {
                             }
                             .frame(height: 150).clipped().clipShape(RoundedRectangle(cornerRadius: 10))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                     }
                 }
             }
@@ -143,7 +143,7 @@ struct PhotoDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("OK") { dismiss() } }
                 ToolbarItem(placement: .destructiveAction) {
-                    Button(role: .destructive) { context.delete(photo); dismiss() } label: { Image(systemName: "trash") }
+                    Button(role: .destructive) { context.deleteUndoable(photo, "Foto apagada"); dismiss() } label: { Image(systemName: "trash") }
                 }
             }
         }

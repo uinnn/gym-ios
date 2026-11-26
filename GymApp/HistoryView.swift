@@ -30,6 +30,7 @@ struct HistoryView: View {
     @State private var selectedDate: Date?
     @State private var showAdd = false
     @State private var report: WeightEntry?
+    @State private var editEntry: WeightEntry?
     private var store: ThemeStore { ThemeStore.shared }
 
     private var entries: [WeightEntry] {
@@ -79,6 +80,7 @@ struct HistoryView: View {
             }
             .sheet(isPresented: $showAdd) { AddWeightSheet() }
             .sheet(item: $report) { ReportView(entry: $0) }
+            .sheet(item: $editEntry) { AddWeightSheet(editing: $0) }
         }
     }
 
@@ -378,16 +380,17 @@ struct HistoryView: View {
                 .padding(.vertical, 10)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.tap)
             .contextMenu {
                 Button("Ver relatório", systemImage: "doc.text.magnifyingglass") { report = e }
+                Button("Editar", systemImage: "pencil") { editEntry = e }
                 Button("Apagar", systemImage: "trash", role: .destructive) {
-                    withAnimation { context.delete(e) }
+                    withAnimation { context.deleteUndoable(e, "Registro apagado") }
                 }
             }
             if i < rev.count - 1 { Divider() }
         }
-        Text("Toque para ver o relatório; toque e segure para apagar.")
+        Text("Toque para ver o relatório; toque e segure para editar ou apagar.")
             .font(.caption2).foregroundStyle(.secondary).padding(.top, 8)
     }
 
@@ -427,12 +430,15 @@ struct HistoryView: View {
 }
 
 struct AddWeightSheet: View {
+    /// Pesagem a editar (peso, data, anotação e tags). nil = nova.
+    var editing: WeightEntry? = nil
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \WeightEntry.date, order: .reverse) private var entries: [WeightEntry]
     @State private var kg: Double = 70
     @State private var date = Date.now
     @State private var note = ""
+    @State private var tags: Set<WeighTag> = []
 
     var body: some View {
         NavigationStack {
@@ -453,23 +459,53 @@ struct AddWeightSheet: View {
                         }
                     }
                 }
-                DatePicker("Data", selection: $date, in: ...Date.now)
-                TextField("Anotação (opcional)", text: $note)
+                Section {
+                    HStack {
+                        Text("Valor exato")
+                        Spacer()
+                        TextField("kg", value: $kg, format: .number.precision(.fractionLength(0...2)))
+                            .keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 90)
+                        Text("kg").foregroundStyle(.secondary)
+                    }
+                    DatePicker("Data", selection: $date, in: ...Date.now)
+                    TextField("Anotação (opcional)", text: $note)
+                }
+                Section("Condição") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            ForEach(WeighTag.allCases) { t in
+                                Button(t.label) { if tags.contains(t) { tags.remove(t) } else { tags.insert(t) } }
+                                    .font(.caption.bold()).buttonStyle(.bordered)
+                                    .tint(tags.contains(t) ? Theme.accent : .secondary)
+                            }
+                        }
+                    }
+                }
+                if let e = editing {
+                    Section {
+                        Button("Apagar pesagem", role: .destructive) { context.deleteUndoable(e, "Pesagem apagada"); dismiss() }
+                    }
+                }
             }
-            .navigationTitle("Adicionar peso")
+            .navigationTitle(editing == nil ? "Adicionar peso" : "Editar pesagem")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Salvar") {
-                        let e = WeightEntry(date: date, kg: kg, source: "manual")
-                        e.note = note
-                        context.insert(e)
+                        context.undoable(editing == nil ? "Pesagem adicionada" : "Pesagem editada") {
+                            let e = editing ?? WeightEntry(date: date, kg: kg, source: "manual")
+                            e.kg = kg; e.date = date; e.note = note; e.tags = tags
+                            if editing == nil { context.insert(e) }
+                        }
                         dismiss()
-                    }
+                    }.bold().disabled(kg < 20)
                 }
             }
-            .onAppear { if let k = entries.first?.kg { kg = k } }
+            .onAppear {
+                if let e = editing { kg = e.kg; date = e.date; note = e.note; tags = e.tags }
+                else if let k = entries.first?.kg { kg = k }
+            }
         }
         .presentationDetents([.medium, .large])
     }

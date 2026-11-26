@@ -61,6 +61,7 @@ struct RootView: View {
         .modifier(TextSizeModifier(size: store.textSize.size))
         .overlay { HubOrb() }
         .syncIncomingPrompt()
+        .undoToast()
         .overlay(alignment: .top) { toastView }
         .sensoryFeedback(.success, trigger: scanner.lastStable) { _, _ in store.haptics }
         .sensoryFeedback(.selection, trigger: tab) { _, _ in store.haptics }
@@ -77,6 +78,7 @@ struct RootView: View {
                 Task { await HealthSync.shared.refresh() }
             } else if p == .background {
                 WidgetBridge.update(context)
+                SmartReminders.reschedule(context: context)
             }
         }
         .onChange(of: AppRouter.shared.tab) { _, t in tab = t }

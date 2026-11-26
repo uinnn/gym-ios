@@ -360,7 +360,7 @@ struct AssistantView: View {
             Button { withAnimation { drafts.removeAll { $0.id == v.id } } } label: {
                 Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.tap)
         }
     }
 

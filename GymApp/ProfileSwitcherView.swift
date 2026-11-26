@@ -136,7 +136,7 @@ struct ProfileEditorSheet: View {
                                 Text(e).font(.title2).frame(width: 36, height: 36)
                                     .background(emoji == e ? Theme.accent.opacity(0.25) : .clear, in: Circle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.tap)
                         }
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -144,7 +144,7 @@ struct ProfileEditorSheet: View {
                             ForEach(Palette.all.indices, id: \.self) { i in
                                 Circle().fill(Palette.all[i].accent).frame(width: 30, height: 30)
                                     .overlay(Circle().strokeBorder(.primary, lineWidth: color == i ? 2.5 : 0))
-                                    .onTapGesture { withAnimation { color = i } }
+                                    .hitTarget().onTapGesture { withAnimation { color = i } }
                             }
                         }
                     }

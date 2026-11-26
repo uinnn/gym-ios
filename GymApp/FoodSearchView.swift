@@ -23,6 +23,8 @@ struct FoodSearchView: View {
     @State private var showPhoto = false
     @State private var showRecipes = false
     @State private var pending: FoodItem?
+    @State private var editFood: FoodItem?
+    @Environment(\.modelContext) private var context
 
     /// Abre a porção depois que a folha anterior terminou de fechar.
     private func takePending() { if let p = pending { pending = nil; picked = p } }
@@ -92,8 +94,34 @@ struct FoodSearchView: View {
                     ContentUnavailableView(emptyText, systemImage: "fork.knife")
                 }
                 ForEach(results) { food in
-                    Button { picked = food } label: { FoodRow(food: food, saved: savedByID[food.id]) }
-                        .buttonStyle(.plain)
+                    let sf = savedByID[food.id]
+                    Button { picked = food } label: { FoodRow(food: food, saved: sf) }
+                        .buttonStyle(.tap)
+                        .swipeActions(edge: .leading) {
+                            Button { toggleFavorite(food, sf) } label: {
+                                Label(sf?.favorite == true ? "Desfavoritar" : "Favoritar", systemImage: sf?.favorite == true ? "star.slash" : "star.fill")
+                            }.tint(.yellow)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            if let sf, source == .recent || sf.isCustom {
+                                Button(role: .destructive) { withAnimation { context.deleteUndoable(sf, "Alimento removido") } } label: {
+                                    Label(sf.isCustom ? "Apagar" : "Tirar dos recentes", systemImage: "trash")
+                                }
+                            }
+                            Button { editFood = food } label: { Label("Editar", systemImage: "pencil") }.tint(Theme.accent)
+                        }
+                        .contextMenu {
+                            Button("Adicionar", systemImage: "plus") { picked = food }
+                            Button("Editar tudo", systemImage: "pencil") { editFood = food }
+                            Button("Duplicar e editar", systemImage: "plus.square.on.square") {
+                                var c = food; c.id = "copy-\(UUID().uuidString)"; c.name += " (cópia)"; editFood = c
+                            }
+                            Button(sf?.favorite == true ? "Remover dos favoritos" : "Favoritar",
+                                   systemImage: sf?.favorite == true ? "star.slash" : "star") { toggleFavorite(food, sf) }
+                            if let sf, sf.isCustom {
+                                Button("Apagar alimento", systemImage: "trash", role: .destructive) { withAnimation { context.deleteUndoable(sf, "Alimento removido") } }
+                            }
+                        }
                 }
             }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Buscar alimento")
@@ -122,10 +150,15 @@ struct FoodSearchView: View {
                 }
             }
             .sheet(isPresented: $showCustom) { CustomFoodSheet { picked = $0 } }
+            .sheet(item: $editFood) { f in CustomFoodSheet(editing: f) { _ in source = .mine } }
             .sheet(isPresented: $showPhoto, onDismiss: takePending) { FoodPhotoView { pending = $0 } }
             .sheet(isPresented: $showRecipes, onDismiss: takePending) { RecipesView { pending = $0 } }
             .onAppear { if saved.isEmpty { source = .taco } }
         }
+    }
+
+    private func toggleFavorite(_ food: FoodItem, _ s: SavedFood?) {
+        if let s { s.favorite.toggle() } else { let n = SavedFood(food); n.favorite = true; context.insert(n) }
     }
 
     private var emptyText: String {
@@ -262,6 +295,8 @@ struct FoodAmountSheet: View {
 
 struct CustomFoodSheet: View {
     var barcode: String? = nil
+    /// Alimento a editar (qualquer origem). Alimentos da base/online viram uma cópia "Meu alimento".
+    var editing: FoodItem? = nil
     var onCreated: (FoodItem) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
@@ -276,6 +311,16 @@ struct CustomFoodSheet: View {
     @State private var e: [String: Double] = [:]
     @State private var chosen: [NutrientID] = []
     @State private var allergens: [String] = []
+    @State private var category = ""
+    @State private var updateLogs = true
+    @State private var loaded = false
+    @Query private var savedAll: [SavedFood]
+    @State private var pastLogCount = 0
+
+    private var isEditingOwn: Bool { editing.map { $0.id.hasPrefix("custom") } ?? false }
+    private func logsDescriptor(_ id: String) -> FetchDescriptor<FoodLog> {
+        FetchDescriptor(predicate: #Predicate { $0.foodID == id })
+    }
 
     /// Campos fixos do formulário (os demais são escolhidos pelo usuário).
     private static let base: Set<NutrientID> = [.protein, .carbs, .sugar, .fat, .saturated, .fiber, .sodium]
@@ -311,6 +356,7 @@ struct CustomFoodSheet: View {
                 Section {
                     TextField("Nome", text: $name)
                     TextField("Marca (opcional)", text: $brand)
+                    if editing != nil { TextField("Categoria", text: $category) }
                     Toggle("É um suplemento", isOn: $isSupplement.animation())
                     num(isSupplement ? "Peso de 1 unidade (g)" : "Porção (g)",
                         Binding(get: { serving ?? 0 }, set: { serving = $0 > 0 ? $0 : nil }))
@@ -365,8 +411,23 @@ struct CustomFoodSheet: View {
                 } footer: {
                     Text("Escolha só o que aparece no rótulo. Use os modelos prontos para montar a lista de um multivitamínico de uma vez. Deslize para remover.")
                 }
+                if isEditingOwn && pastLogCount > 0 {
+                    Section {
+                        Toggle("Atualizar \(pastLogCount) registro\(pastLogCount == 1 ? "" : "s") já feito\(pastLogCount == 1 ? "" : "s")", isOn: $updateLogs)
+                    } footer: {
+                        Text("Recalcula o diário com os novos valores, mantendo as quantidades.")
+                    }
+                }
+                if editing != nil && !isEditingOwn {
+                    Section {
+                        Label("Este alimento vem de uma base pública. Ao salvar, uma cópia editável é criada em \"Meus\".", systemImage: "info.circle")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
             }
-            .navigationTitle(isSupplement ? "Novo suplemento" : "Novo alimento")
+            .onAppear(perform: load)
+            .navigationTitle(editing != nil ? (isEditingOwn ? "Editar alimento" : "Editar (cópia pessoal)")
+                             : (isSupplement ? "Novo suplemento" : "Novo alimento"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
@@ -404,19 +465,53 @@ struct CustomFoodSheet: View {
         chosen.removeAll { $0 == id }
     }
 
+    /// Preenche o formulário com TUDO do alimento sendo editado.
+    private func load() {
+        guard !loaded, let f = editing else { return }
+        loaded = true
+        name = f.name; brand = f.brand ?? ""; category = f.category
+        serving = f.servingGrams; servingName = f.servingName ?? ""
+        isSupplement = f.category == "Suplementos"
+        perServing = false
+        n = f.per100; m = f.micros ?? Micros(); e = f.extras ?? [:]
+        allergens = f.allergens ?? []
+        if isEditingOwn { pastLogCount = (try? context.fetchCount(logsDescriptor(f.id))) ?? 0 }
+        chosen = NutrientID.allCases.filter { !Self.base.contains($0) && $0.value(n, m, e) > 0 }
+    }
+
     private func save() {
         // Tudo é guardado por 100 g; valores por porção/unidade são convertidos.
         let f = perServing ? 100 / max(serving ?? 100, 0.01) : 1
         let usedMicros = chosen.contains { !$0.isExtra && $0.value(.zero, m) > 0 }
         let nm = servingName.trimmingCharacters(in: .whitespaces)
-        let food = FoodItem(id: barcode.map { "custom-bc-\($0)" } ?? "custom-\(UUID().uuidString)", name: name,
-                            category: isSupplement ? "Suplementos" : "Meus alimentos",
+        let newID = barcode.map { "custom-bc-\($0)" } ?? "custom-\(UUID().uuidString)"
+        let cat = category.trimmingCharacters(in: .whitespaces)
+        let food = FoodItem(id: isEditingOwn ? editing!.id : newID, name: name,
+                            category: isSupplement ? "Suplementos" : (cat.isEmpty || cat == "Suplementos" ? "Meus alimentos" : cat),
                             brand: brand.isEmpty ? nil : brand, per100: n.scaled(f), servingGrams: serving,
                             servingName: nm.isEmpty ? (isSupplement ? "unidade" : nil) : nm,
                             micros: usedMicros ? m.scaled(f) : nil,
                             allergens: allergens.isEmpty ? nil : allergens,
                             extras: e.isEmpty ? nil : e.scaled(f))
-        context.insert(SavedFood(food, custom: true))
+        UndoCenter.enable(context)
+        context.undoManager?.beginUndoGrouping()
+        defer {
+            context.undoManager?.endUndoGrouping()
+            if editing != nil { UndoCenter.shared.offer("\(food.name) salvo", in: context) }
+        }
+        if isEditingOwn, let s = savedAll.first(where: { $0.foodID == food.id }) {
+            s.data = Caches.foods.encode(food)
+            s.isCustom = true
+            if updateLogs {
+                // Recalcula os registros já feitos com os novos valores (mesmas gramas).
+                for l in (try? context.fetch(logsDescriptor(food.id))) ?? [] {
+                    let fresh = FoodLog(date: l.date, meal: l.meal, food: food, grams: l.grams)
+                    l.name = fresh.name; l.nutrients = fresh.nutrients; l.micros = fresh.micros; l.extrasData = fresh.extrasData
+                }
+            }
+        } else {
+            context.insert(SavedFood(food, custom: true))
+        }
         dismiss()
         onCreated(food)
     }

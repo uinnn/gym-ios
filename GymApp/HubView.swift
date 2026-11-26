@@ -80,6 +80,7 @@ struct HubView: View {
     @State private var party = PartyService.shared
     @State private var sheet: HubSheet?
     @State private var water = WaterReminder.enabled
+    @State private var smart = SmartReminders.enabled
 
     enum HubSheet: String, Identifiable {
         case sync, assistant, party, chat, achievements, partySettings, profiles, profile, theme, data, scale
@@ -276,6 +277,10 @@ struct HubView: View {
                     water = on
                     if on { Task { water = await WaterReminder.requestAndEnable() } } else { WaterReminder.enabled = false; WaterReminder.reschedule(todayMl: 0, targetMl: 0) }
                 })) { Label("Lembretes de água", systemImage: "drop.fill") }
+                Toggle(isOn: Binding(get: { smart }, set: { on in
+                    smart = on
+                    if on { Task { smart = await SmartReminders.requestAndEnable() } } else { SmartReminders.enabled = false }
+                })) { Label("Avisar se esquecer refeição ou pesagem", systemImage: "bell.and.waves.left.and.right") }
                 Toggle(isOn: Binding(get: { !orbHidden }, set: { orbHidden = !$0 })) {
                     Label("Botão flutuante da Central", systemImage: "circle.circle.fill")
                 }

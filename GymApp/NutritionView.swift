@@ -51,7 +51,7 @@ struct NutritionView: View {
     private var cal: Calendar { Calendar.current }
     /// Guarda resultados entre atualizações da tela (o corpo da view é avaliado muitas vezes).
     private final class Memo {
-        var logsKey = "", dayLogs: [FoodLog] = []
+        var logsKey = "", dayLogs: [FoodLog] = [], prevDay: [String: [FoodLog]] = [:]
         var targetsKey = "", targets: NutritionTargets = .fallback, nutrientContext: NutrientContext?
     }
     @State private var memo = Memo()
@@ -60,7 +60,14 @@ struct NutritionView: View {
     private var dayLogs: [FoodLog] {
         let key = "\(day.timeIntervalSince1970)|\(logs.count)|\(logs.last?.date.timeIntervalSince1970 ?? 0)"
         if memo.logsKey != key {
-            memo.dayLogs = logs.filter { cal.isSameDay($0.date, day) }
+            let y = cal.date(byAdding: .day, value: -1, to: day) ?? day
+            var today: [FoodLog] = [], prev: [String: [FoodLog]] = [:]
+            for l in logs {      // uma só passada para o dia e o dia anterior
+                if cal.isSameDay(l.date, day) { today.append(l) }
+                else if cal.isSameDay(l.date, y) { prev[l.mealRaw, default: []].append(l) }
+            }
+            memo.dayLogs = today
+            memo.prevDay = prev
             memo.logsKey = key
         }
         return memo.dayLogs
@@ -116,6 +123,7 @@ struct NutritionView: View {
                         .appear(0.1)
                         .onAppear { WaterReminder.reschedule(todayMl: todayWater, targetMl: targets.water) }
                         .onChange(of: todayWater) { _, ml in WaterReminder.reschedule(todayMl: ml, targetMl: targets.water) }
+                        QuickLogBar(day: day).appear(0.11)
                         ForEach(Array(Meal.allCases.enumerated()), id: \.element) { i, meal in
                             mealCard(meal).appear(0.12 + Double(i) * 0.03)
                         }
@@ -230,9 +238,18 @@ struct NutritionView: View {
                     }
                     .buttonStyle(PressableStyle())
                 }
+                if items.isEmpty, let prev = memo.prevDay[meal.rawValue], !prev.isEmpty {
+                    Button { repeatPrevious(prev) } label: {
+                        Label("Igual a ontem · \(prev.count) \(prev.count == 1 ? "item" : "itens") · \(prev.map(\.nutrients.kcal).reduce(0, +).fmt(0)) kcal",
+                              systemImage: "arrow.clockwise")
+                            .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 36)
+                    }
+                    .buttonStyle(.bordered).tint(Theme.accent)
+                }
                 if !items.isEmpty {
                     ProgressBar(progress: n.kcal / max(goal, 1), tint: n.kcal > goal * 1.3 ? Theme.warm : Theme.accent, height: 4)
                     ForEach(items) { log in
+                      HStack(spacing: 4) {
                         Button { editing = log } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 1) {
@@ -241,12 +258,11 @@ struct NutritionView: View {
                                 }
                                 Spacer()
                                 Text("\(log.nutrients.kcal.fmt(0)) kcal").font(.subheadline.monospacedDigit())
-                                SyncButton(item: log)
                             }
                             .foregroundStyle(.primary)
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                         .contextMenu {
                             Button("Editar", systemImage: "pencil") { editing = log }
                             Button("Duplicar", systemImage: "plus.square.on.square") {
@@ -254,9 +270,12 @@ struct NutritionView: View {
                                 context.insert(c)
                             }
                             Button("Apagar", systemImage: "trash", role: .destructive) {
-                                withAnimation { context.delete(log) }
+                                withAnimation { context.deleteUndoable(log, "(log.name) apagado") }
                             }
                         }
+                        // Fora do botão da linha: antes, tocar na nuvem abria o editor (botão dentro de botão).
+                        SyncButton(item: log)
+                      }
                     }
                 }
             }
@@ -270,13 +289,18 @@ struct NutritionView: View {
                          ctx: nutrientContext) { nutrientDetail = $0 }
     }
 
+    private func repeatPrevious(_ src: [FoodLog]) {
+        context.undoable("Refeição repetida") {
+            for l in src {
+                let date = cal.date(byAdding: .day, value: 1, to: l.date) ?? day
+                context.insert(FoodLog(date: date, meal: l.meal, food: l.asFood, grams: l.grams))
+            }
+        }
+    }
+
     private func copyYesterday() {
         guard let y = cal.date(byAdding: .day, value: -1, to: day) else { return }
-        let src = logs.filter { cal.isSameDay($0.date, y) }
-        for l in src {
-            let date = cal.date(byAdding: .day, value: 1, to: l.date) ?? day
-            context.insert(FoodLog(date: date, meal: l.meal, food: l.asFood, grams: l.grams))
-        }
+        repeatPrevious(logs.filter { cal.isSameDay($0.date, y) })
     }
 }
 
@@ -336,7 +360,7 @@ struct DayStrip: View {
                             .background(on ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(.ultraThinMaterial),
                                         in: RoundedRectangle(cornerRadius: 14))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                         .id(d)
                     }
                 }
@@ -416,7 +440,7 @@ struct WaterCard: View {
                     Button {
                         let fetch = FetchDescriptor<WaterLog>(sortBy: [SortDescriptor(\.date, order: .reverse)])
                         if let last = (try? context.fetch(fetch))?.first(where: { Calendar.current.isSameDay($0.date, day) }) {
-                            context.delete(last)
+                            context.deleteUndoable(last, "Água removida")
                         }
                     } label: { Image(systemName: "arrow.uturn.backward") }
                     .font(.caption).buttonStyle(.bordered).tint(.secondary)
@@ -504,39 +528,100 @@ struct EditLogSheet: View {
     @Bindable var log: FoodLog
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
+    @Query private var saved: [SavedFood]
     @State private var grams: Double = 100
     @State private var meal: Meal = .lunch
+    @State private var name = ""
+    @State private var date = Date.now
+    @State private var per100 = Nutrients()
+    @State private var editSource: FoodItem?
+    @State private var confirmDelete = false
+
+    /// Valor da porção atual ↔ valor por 100 g (edita-se o que se vê; guarda-se normalizado).
+    private func portion(_ k: WritableKeyPath<Nutrients, Double>) -> Binding<Double> {
+        Binding(get: { per100[keyPath: k] * grams / 100 },
+                set: { per100[keyPath: k] = $0 * 100 / max(grams, 0.1) })
+    }
 
     var body: some View {
         let food = log.asFood
         NavigationStack {
             Form {
-                Section(log.name) {
+                Section {
+                    TextField("Nome", text: $name).font(.headline)
                     Picker("Refeição", selection: $meal) {
                         ForEach(Meal.allCases) { Label($0.label, systemImage: $0.icon).tag($0) }
                     }
-                    GramsField(grams: $grams)
+                    DatePicker("Quando", selection: $date)
+                    GramsField(grams: $grams, serving: sourceFood?.servingGrams.map { (sourceFood?.servingName ?? "porção", $0) })
                 }
-                NutrientsSummary(n: food.per100.scaled(grams / 100), m: food.micros?.scaled(grams / 100), e: food.extras?.scaled(grams / 100) ?? [:])
+                Section("Nesta porção (\(grams.fmt(0)) g)") {
+                    num("Calorias (kcal)", portion(\.kcal))
+                    num("Proteína (g)", portion(\.protein))
+                    num("Carboidratos (g)", portion(\.carbs))
+                    num("Açúcares (g)", portion(\.sugar))
+                    num("Gorduras (g)", portion(\.fat))
+                    num("Gordura saturada (g)", portion(\.saturated))
+                    num("Fibras (g)", portion(\.fiber))
+                    num("Sódio (mg)", portion(\.sodium))
+                }
+                NutrientsSummary(n: per100.scaled(grams / 100), m: food.micros?.scaled(grams / 100), e: food.extras?.scaled(grams / 100) ?? [:])
                 Section {
-                    Button("Apagar", role: .destructive) { context.delete(log); dismiss() }
+                    Button("Editar o alimento (vale para os próximos registros)", systemImage: "square.and.pencil") {
+                        editSource = sourceFood ?? food
+                    }
+                    Button("Duplicar registro", systemImage: "plus.square.on.square") {
+                        save()
+                        context.insert(FoodLog(date: log.date, meal: log.meal, food: log.asFood, grams: log.grams))
+                        dismiss()
+                    }
+                    Button("Apagar", systemImage: "trash", role: .destructive) { confirmDelete = true }
                 }
             }
-            .navigationTitle("Editar")
+            .navigationTitle("Editar registro")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Salvar") {
-                        log.rescale(to: grams)
-                        log.mealRaw = meal.rawValue
-                        dismiss()
-                    }
+                    Button("Salvar") { context.undoable("Registro editado") { save() }; dismiss() }.bold().disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
-            .onAppear { grams = log.grams; meal = log.meal }
+            .confirmationDialog("Apagar \(log.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Apagar", role: .destructive) { context.deleteUndoable(log, "(log.name) apagado"); dismiss() }
+            }
+            .sheet(item: $editSource) { f in
+                CustomFoodSheet(editing: f) { updated in
+                    // Aplica o alimento editado a este registro também.
+                    name = updated.name; per100 = updated.per100; log.foodID = updated.id
+                }
+            }
+            .onAppear {
+                grams = log.grams; meal = log.meal; name = log.name; date = log.date
+                per100 = log.asFood.per100
+            }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
+    }
+
+    private var sourceFood: FoodItem? {
+        saved.first { $0.foodID == log.foodID }?.food ?? FoodDatabase.shared.food(id: log.foodID)
+    }
+
+    private func save() {
+        log.rescale(to: grams)                       // micros/extras acompanham a quantidade
+        log.nutrients = per100.scaled(grams / 100)   // macros editados à mão
+        log.name = name.trimmingCharacters(in: .whitespaces)
+        log.mealRaw = meal.rawValue
+        log.date = date
+    }
+
+    private func num(_ title: String, _ b: Binding<Double>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            TextField("0", value: b, format: .number.precision(.fractionLength(0...1)))
+                .keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 90)
+        }
     }
 }
 

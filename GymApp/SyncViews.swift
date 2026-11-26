@@ -18,21 +18,23 @@ struct SyncButton<M: Syncable>: View {
                 } else if item.isSynced {
                     Image(systemName: "checkmark.icloud.fill").foregroundStyle(Theme.good.opacity(0.8))
                 } else if engine.mode == .manual {
-                    Button {
-                        sending = true
-                        Task { await engine.send([item]); sending = false }
-                    } label: {
-                        Image(systemName: "icloud.and.arrow.up").foregroundStyle(Theme.accent)
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Enviar para o site")
+                    // Gesto de alta prioridade: funciona mesmo dentro do botão da linha
+                    // (um Button dentro de outro deixava o toque cair no de fora).
+                    Image(systemName: "icloud.and.arrow.up").foregroundStyle(Theme.accent)
+                        .hitTarget()
+                        .highPriorityGesture(TapGesture().onEnded {
+                            sending = true
+                            Task { await engine.send([item]); sending = false }
+                        })
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel("Enviar para o site")
                 } else {
                     Image(systemName: "icloud.slash").foregroundStyle(.secondary)
                         .accessibilityLabel("Aguardando internet")
                 }
             }
             .font(.caption)
-            .frame(width: 22)
+            .frame(minWidth: 22)
         }
     }
 }

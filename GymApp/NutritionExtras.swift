@@ -71,7 +71,7 @@ struct RecipesView: View {
                     .contentShape(Rectangle())
                     .swipeActions(edge: .leading) { Button("Editar") { editing = r }.tint(Theme.info) }
                 }
-                .onDelete { idx in idx.forEach { context.delete(recipes[$0]) } }
+                .onDelete { idx in idx.forEach { context.deleteUndoable(recipes[$0], "Receita apagada") } }
             }
             .navigationTitle("Receitas")
             .navigationBarTitleDisplayMode(.inline)

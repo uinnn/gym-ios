@@ -339,7 +339,7 @@ struct WorkoutsView: View {
                     Button { start(r) } label: {
                         Image(systemName: "play.circle.fill").font(.title).foregroundStyle(Theme.gradient)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
                 }
             }
         }
@@ -356,7 +356,7 @@ struct WorkoutsView: View {
             Button("Duplicar", systemImage: "plus.square.on.square") {
                 context.insert(WorkoutRoutine(name: r.name + " (cópia)", icon: r.icon, order: routines.count, items: r.items))
             }
-            Button("Apagar", systemImage: "trash", role: .destructive) { context.delete(r) }
+            Button("Apagar", systemImage: "trash", role: .destructive) { context.deleteUndoable(r, "Rotina apagada") }
         }
     }
 
@@ -444,7 +444,7 @@ struct SessionDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("OK") { dismiss() } }
             .confirmationDialog("Apagar este treino?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("Apagar", role: .destructive) { context.delete(session); dismiss() }
+                Button("Apagar", role: .destructive) { context.deleteUndoable(session, "Treino apagado"); dismiss() }
             }
             .sheet(isPresented: $showShare) {
                 ShareImageSheet(title: "Treino") { WorkoutShareCard(session: session) }

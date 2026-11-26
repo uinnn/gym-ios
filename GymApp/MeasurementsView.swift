@@ -335,7 +335,7 @@ struct MeasurementsView: View {
                     .padding(.vertical, 10)
                     .contextMenu {
                         Button("Apagar", systemImage: "trash", role: .destructive) {
-                            withAnimation { context.delete(e) }
+                            withAnimation { context.deleteUndoable(e, "Registro apagado") }
                         }
                     }
                     Divider()
@@ -366,7 +366,7 @@ struct AddMeasurementSheet: View {
                             Button { help = p } label: {
                                 Image(systemName: "questionmark.circle").foregroundStyle(Theme.accent)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.tap)
                             Text(p.label)
                             Spacer()
                             TextField(all.latestValue(p).map { $0.fmt(1) } ?? "cm",

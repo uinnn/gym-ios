@@ -31,7 +31,7 @@ private func bands(_ items: (Double, String, Tone)...) -> [Band] {
 // MARK: - Catálogo de métricas
 
 enum MetricCategory: String, CaseIterable, Identifiable {
-    case composition, muscle, metabolism, indices, shape, ideal, nutrition
+    case composition, muscle, metabolism, indices, health, shape, ideal, nutrition
     var id: String { rawValue }
 
     var title: String {
@@ -40,6 +40,7 @@ enum MetricCategory: String, CaseIterable, Identifiable {
         case .muscle: "Músculos e ossos"
         case .metabolism: "Metabolismo e energia"
         case .indices: "Índices corporais"
+        case .health: "Saúde e risco"
         case .shape: "Formato e risco (medidas)"
         case .ideal: "Peso ideal e controle"
         case .nutrition: "Nutrição diária"
@@ -52,6 +53,7 @@ enum MetricCategory: String, CaseIterable, Identifiable {
         case .muscle: "figure.strengthtraining.traditional"
         case .metabolism: "flame.fill"
         case .indices: "function"
+        case .health: "heart.text.square.fill"
         case .shape: "ruler.fill"
         case .ideal: "target"
         case .nutrition: "fork.knife"
@@ -76,6 +78,8 @@ enum MetricID: String, CaseIterable, Identifiable {
     case standardWeight, idealWeight, healthyMin, healthyMax, weightControl, fatControl, muscleControl
     // nutrição
     case targetCalories, proteinNeed, fatNeed, carbNeed, fiberNeed, waterIntake
+    // novas (músculo, saúde, peso, nutrição)
+    case smi, asm, asmi, muscleFatRatio, waistRisk, cardioRisk, adjustedWeight, leanWeight, proteinCut
 
     var id: String { rawValue }
 
@@ -90,6 +94,10 @@ enum MetricID: String, CaseIterable, Identifiable {
              .mWaist, .mAbdomen, .mHip, .mNeck, .mChest, .mShoulders, .mArmL, .mArmR, .mForearmL, .mForearmR, .mThighL, .mThighR, .mCalfL, .mCalfR, .mWrist, .frameSize, .shoulderWaist, .chestWaist, .armSymmetry, .thighSymmetry, .calfSymmetry: .shape
         case .standardWeight, .idealWeight, .healthyMin, .healthyMax, .weightControl, .fatControl, .muscleControl: .ideal
         case .targetCalories, .proteinNeed, .fatNeed, .carbNeed, .fiberNeed, .waterIntake: .nutrition
+        case .smi, .asm, .asmi, .muscleFatRatio: .muscle
+        case .waistRisk, .cardioRisk: .health
+        case .adjustedWeight, .leanWeight: .ideal
+        case .proteinCut: .nutrition
         }
     }
 
@@ -147,6 +155,15 @@ enum MetricID: String, CaseIterable, Identifiable {
         case .carbNeed: "Carboidrato diário"
         case .fiberNeed: "Fibras diárias"
         case .waterIntake: "Água para beber"
+        case .smi: "Índice de músculo esquelético"
+        case .asm: "Músculo dos braços e pernas"
+        case .asmi: "Índice de músculo apendicular"
+        case .muscleFatRatio: "Relação músculo / gordura"
+        case .waistRisk: "Risco pela cintura"
+        case .cardioRisk: "Fatores de risco cardiometabólico"
+        case .adjustedWeight: "Peso ajustado"
+        case .leanWeight: "Peso com gordura ideal"
+        case .proteinCut: "Proteína em déficit"
         default: measureMeta.title
         }
     }
@@ -169,6 +186,12 @@ enum MetricID: String, CaseIterable, Identifiable {
         case .visceralFat: "nível"
         case .bodyScore: "pts"
         case .bmiPrime, .whtr, .whr, .bri, .absi, .conicity: ""
+        case .smi, .asmi: "kg/m²"
+        case .asm, .adjustedWeight, .leanWeight: "kg"
+        case .muscleFatRatio: ""
+        case .waistRisk: "cm"
+        case .cardioRisk: "fatores"
+        case .proteinCut: "g"
         default: measureMeta.unit
         }
     }
@@ -176,7 +199,8 @@ enum MetricID: String, CaseIterable, Identifiable {
     var digits: Int {
         switch self {
         case .bmr, .tdee, .maxDeficit, .targetCalories, .proteinNeed, .fatNeed, .carbNeed, .fiberNeed,
-             .height, .age, .metabolicAge, .visceralFat, .bodyScore: 0
+             .height, .age, .metabolicAge, .visceralFat, .bodyScore, .cardioRisk, .proteinCut, .waistRisk: 0
+        case .muscleFatRatio: 2
         case .weight, .whtr, .whr, .bmiPrime, .bsa, .conicity, .shoulderWaist, .chestWaist: 2
         case .absi: 4
         default: 1
@@ -221,6 +245,13 @@ enum MetricID: String, CaseIterable, Identifiable {
         case .carbNeed: "leaf.fill"
         case .fiberNeed: "carrot.fill"
         case .waterIntake: "waterbottle.fill"
+        case .smi, .asmi: "figure.strengthtraining.functional"
+        case .asm: "figure.arms.open"
+        case .muscleFatRatio: "scalemass"
+        case .waistRisk: "ruler"
+        case .cardioRisk: "heart.text.square.fill"
+        case .adjustedWeight, .leanWeight: "target"
+        case .proteinCut: "fish.fill"
         default: measureMeta.icon
         }
     }
@@ -229,7 +260,9 @@ enum MetricID: String, CaseIterable, Identifiable {
     var higherIsBetter: Bool? {
         switch self {
         case .smmPercent, .smm, .musclePercent, .muscleMass, .bone, .waterPercent, .waterMass,
-             .proteinPercent, .proteinMass, .lbm, .ffmi, .nffmi, .bodyScore, .muscularPotential: true
+             .proteinPercent, .proteinMass, .lbm, .ffmi, .nffmi, .bodyScore, .muscularPotential,
+             .smi, .asm, .asmi, .muscleFatRatio: true
+        case .waistRisk, .cardioRisk: false
         case .bmi, .bodyFat, .fatMass, .subcutaneousFat, .visceralFat, .obesity, .metabolicAge, .fmi,
              .whtr, .whr, .bri, .absi, .conicity, .rfm, .bai, .bmiPrime: false
         case .mWaist, .mAbdomen, .mNeck, .armSymmetry, .thighSymmetry, .calfSymmetry: false
@@ -465,6 +498,42 @@ extension MetricID {
             what: "Água para beber por dia.",
             how: "35 ml por kg de peso.",
             tip: "Aumente em dias quentes ou de treino. Urina clara é um bom sinal.")
+        case .smi: MetricInfo(
+            what: "Músculo esquelético dividido pela altura ao quadrado. Usado em pesquisas para identificar perda de músculo (sarcopenia) independentemente do tamanho da pessoa.",
+            how: "Massa muscular esquelética ÷ altura² (Janssen et al., 2004). Referências: homens < 8,5 risco alto e 8,5–10,75 risco moderado; mulheres < 5,75 e 5,75–6,75.",
+            tip: "Treino de força 2–3x por semana e proteína suficiente são o que mais protege o músculo, principalmente depois dos 40.")
+        case .asm: MetricInfo(
+            what: "Massa magra dos braços e das pernas: o músculo que você usa para se mover. É o principal marcador de força e independência com a idade.",
+            how: "Equação antropométrica de Lee et al. (2000), validada contra exame de imagem (ressonância): peso, altura, idade e sexo.",
+            tip: "Agachamento, remadas, supino e caminhadas com carga aumentam esse número.")
+        case .asmi: MetricInfo(
+            what: "Músculo de braços e pernas ajustado pela altura: o critério do consenso europeu de sarcopenia (EWGSOP2).",
+            how: "Músculo apendicular ÷ altura². Baixo: homens < 7,0 kg/m², mulheres < 5,5 kg/m² (Cruz-Jentoft et al., 2019).",
+            tip: "Se estiver baixo, priorize treino de força e ~1,6 g/kg de proteína por dia.")
+        case .muscleFatRatio: MetricInfo(
+            what: "Quantos kg de músculo esquelético você tem para cada kg de gordura. Relações maiores estão ligadas a menor risco de síndrome metabólica.",
+            how: "Massa muscular esquelética ÷ massa de gordura.",
+            tip: "Sobe tanto ganhando músculo quanto perdendo gordura — por isso mostra a recomposição melhor que o peso.")
+        case .waistRisk: MetricInfo(
+            what: "Circunferência da cintura comparada com os limites da OMS para risco de doenças metabólicas e cardiovasculares.",
+            how: "Homens: risco aumentado ≥ 94 cm, alto ≥ 102 cm. Mulheres: ≥ 80 cm e ≥ 88 cm (OMS/IDF).",
+            tip: "A cintura costuma cair mesmo quando o peso para: meça a cada 2–4 semanas no mesmo ponto (na altura do umbigo).")
+        case .cardioRisk: MetricInfo(
+            what: "Quantos fatores de risco cardiometabólico ligados ao corpo você tem hoje: IMC alto, gordura corporal alta, gordura visceral alta, cintura/altura ≥ 0,5 e cintura/quadril alta.",
+            how: "Soma dos critérios da OMS e das faixas de gordura por idade e sexo. Exames de sangue e pressão não entram aqui.",
+            tip: "Cada fator a menos reduz o risco. Cintura e gordura visceral respondem rápido a déficit calórico, sono e atividade.")
+        case .adjustedWeight: MetricInfo(
+            what: "Peso usado em clínicas para calcular doses e necessidades quando há excesso de peso: considera só parte do peso acima do ideal.",
+            how: "Peso ideal (Devine) + 0,4 × (peso atual − peso ideal), quando o peso está mais de 20% acima do ideal.",
+            tip: "Útil para calcular proteína em quem tem bastante gordura a perder.")
+        case .leanWeight: MetricInfo(
+            what: "O peso que você teria mantendo toda a massa magra atual e chegando ao meio da faixa saudável de gordura para sua idade.",
+            how: "Massa magra ÷ (1 − gordura alvo). Faixas de gordura de Gallagher et al. (2000).",
+            tip: "Uma meta de peso mais realista que o IMC, porque respeita o músculo que você já tem.")
+        case .proteinCut: MetricInfo(
+            what: "Proteína diária para preservar músculo durante a perda de gordura.",
+            how: "2,3 a 3,1 g por kg de massa magra (Helms et al., 2014); mostramos o meio da faixa.",
+            tip: "Em déficit, a proteína alta também aumenta a saciedade e o gasto da digestão.")
         default: measureInfo
         }
     }
@@ -659,7 +728,18 @@ struct BodyAnalysis {
                    scale: 15...40))
         let fatBands = bands((fr.low, "Baixo", .low), (fr.healthy, "Saudável", .good),
                              (fr.high, "Alto", .warn), (.infinity, "Muito alto", .bad))
-        add(Metric(id: .bodyFat, value: bodyFat, bands: fatBands, scale: 0...50, method: fatMethod))
+        var fatComps: [(String, Double)] = []
+        let sx = male ? 1.0 : 0.0
+        fatComps.append(("Deurenberg (IMC, idade, sexo)", 1.2 * bmi + 0.23 * A - 10.8 * sx - 5.4))
+        do {
+            let s0 = male ? 0.0 : 1.0, B = bmi
+            let cun = -44.988 + 0.503 * A + 10.689 * s0 + 3.172 * B - 0.026 * B * B + 0.181 * B * s0
+                - 0.02 * B * A - 0.005 * B * B * s0 + 0.00021 * B * B * A
+            if !fatMethod.hasPrefix("CUN") { fatComps.append(("CUN-BAE", cun)) }
+        }
+        if let w = input.waist, !fatMethod.hasPrefix("RFM") { fatComps.append(("RFM (cintura)", (male ? 64 : 76) - 20 * (input.heightCm / w))) }
+        add(Metric(id: .bodyFat, value: bodyFat, bands: fatBands, scale: 0...50, method: fatMethod,
+                   comparisons: fatComps.map { ($0.0, min(max($0.1, 3), 65)) }))
         add(Metric(id: .fatMass, value: fatMass,
                    bands: bands((W * fr.low / 100, "Baixo", .low), (W * fr.healthy / 100, "Saudável", .good),
                                 (W * fr.high / 100, "Alto", .warn), (.infinity, "Muito alto", .bad)),
@@ -826,6 +906,48 @@ struct BodyAnalysis {
         add(Metric(id: .carbNeed, value: carb))
         add(Metric(id: .fiberNeed, value: target / 1000 * 14))
         add(Metric(id: .waterIntake, value: W * 0.035))
+
+        // Músculo: sarcopenia e recomposição
+        let smiV = smm / h2
+        add(Metric(id: .smi, value: smiV,
+                   bands: male ? bands((8.5, "Risco alto", .bad), (10.75, "Risco moderado", .warn), (.infinity, "Normal", .good))
+                               : bands((5.75, "Risco alto", .bad), (6.75, "Risco moderado", .warn), (.infinity, "Normal", .good)),
+                   scale: male ? 6...14 : 4...10))
+        let asmV = max(0, 0.244 * W + 7.8 * h + 6.6 * sx - 0.098 * A - 3.3)
+        add(Metric(id: .asm, value: asmV, method: "Lee et al. (2000)"))
+        add(Metric(id: .asmi, value: asmV / h2,
+                   bands: male ? bands((7.0, "Baixo", .bad), (8.5, "Normal", .good), (.infinity, "Ótimo", .excellent))
+                               : bands((5.5, "Baixo", .bad), (6.8, "Normal", .good), (.infinity, "Ótimo", .excellent)),
+                   scale: male ? 5...11 : 4...9))
+        if fatMass > 0 {
+            add(Metric(id: .muscleFatRatio, value: smm / fatMass,
+                       bands: male ? bands((1.2, "Baixa", .warn), (2, "Boa", .good), (.infinity, "Excelente", .excellent))
+                                   : bands((0.8, "Baixa", .warn), (1.3, "Boa", .good), (.infinity, "Excelente", .excellent)),
+                       scale: 0...(male ? 4 : 3)))
+        }
+
+        // Saúde e risco
+        if let w = input.waist {
+            add(Metric(id: .waistRisk, value: w,
+                       bands: male ? bands((94, "Baixo risco", .good), (102, "Risco aumentado", .warn), (.infinity, "Risco alto", .bad))
+                                   : bands((80, "Baixo risco", .good), (88, "Risco aumentado", .warn), (.infinity, "Risco alto", .bad)),
+                       scale: male ? 60...130 : 55...120))
+        }
+        var factors: [(String, Double)] = []
+        if bmi >= 30 { factors.append(("IMC ≥ 30", bmi)) }
+        if bodyFat > fr.high { factors.append(("Gordura acima da faixa", bodyFat)) }
+        if visceral >= 10 { factors.append(("Gordura visceral ≥ 10", visceral)) }
+        if let w = input.waist, w / input.heightCm >= 0.5 { factors.append(("Cintura/altura ≥ 0,5", w / input.heightCm)) }
+        if let w = input.waist, let hp = input.hip, w / hp >= (male ? 0.9 : 0.85) { factors.append(("Cintura/quadril alta", w / hp)) }
+        add(Metric(id: .cardioRisk, value: Double(factors.count),
+                   bands: bands((1, "Nenhum fator", .excellent), (2, "1 fator", .warn), (.infinity, "2+ fatores", .bad)),
+                   scale: 0...5, method: input.waist == nil ? "Sem medida de cintura: avaliados 3 de 5 critérios" : nil,
+                   comparisons: factors))
+
+        // Peso: ajustado (clínico) e com gordura ideal
+        if W > devine * 1.2 { add(Metric(id: .adjustedWeight, value: devine + 0.4 * (W - devine), comparisons: [("Peso ideal (Devine)", devine)])) }
+        add(Metric(id: .leanWeight, value: targetW, comparisons: [("Gordura alvo (%)", bfTarget * 100), ("Diferença para hoje (kg)", targetW - W)]))
+        add(Metric(id: .proteinCut, value: lbm * 2.7, comparisons: [("Mínimo (2,3 g/kg magra)", lbm * 2.3), ("Máximo (3,1 g/kg magra)", lbm * 3.1)]))
         return out
     }
 

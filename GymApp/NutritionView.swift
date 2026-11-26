@@ -189,7 +189,7 @@ struct NutritionView: View {
             .sheet(item: $editing) { EditLogSheet(log: $0) }
             .sheet(isPresented: $showPlan) { MealPlanView(day: day, targets: targets) }
             .sheet(isPresented: $showStats) { NutritionStatsView() }
-            .sheet(item: $nutrientDetail) { NutrientDetailView(id: $0) }
+            .sheet(item: $nutrientDetail) { NutrientDetailView(id: $0, day: day) }
             .sheet(isPresented: $showShare) {
                 let t = targets
                 ShareImageSheet(title: "Alimentação") {

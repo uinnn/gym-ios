@@ -373,6 +373,32 @@ enum AdvancedMetrics {
 
         // ---------------------------------------------------------------- Corpo
         var body: [AdvMetric] = []
+        // Mudança de composição: quanto da variação de peso foi gordura e quanto foi massa magra
+        if let ctx = AnalysisContext(profile: i.profile, entries: i.weights, measurements: i.measurements), let lastW = i.weights.last,
+           let base = i.weights.last(where: { $0.date <= lastW.date.addingTimeInterval(-28 * 86400) })
+                ?? i.weights.first.flatMap({ lastW.date.timeIntervalSince($0.date) >= 14 * 86400 ? $0 : nil }) {
+            let a0 = ctx.analysis(base), a1 = ctx.current
+            let dW = lastW.kg - base.kg, dFat = a1.fatMass - a0.fatMass, dLean = a1.lbm - a0.lbm, dMus = a1.smm - a0.smm
+            let days = max(1, lastW.date.timeIntervalSince(base.date) / 86400)
+            let goal = i.profile?.goal ?? .maintain
+            var status = "Estável", tone: AdvMetric.Tone = .neutral
+            if abs(dW) >= 0.3 {
+                if dW < 0 {
+                    let fatShare = -dFat / -dW
+                    status = fatShare >= 0.75 ? "Perdendo principalmente gordura" : "Perdendo massa magra também"
+                    tone = fatShare >= 0.75 ? .good : .warn
+                } else {
+                    let leanShare = dLean / dW
+                    status = leanShare >= 0.5 ? "Ganhando principalmente massa magra" : "Ganhando mais gordura"
+                    tone = goal == .gain ? (leanShare >= 0.5 ? .good : .warn) : .warn
+                }
+            } else if dFat < -0.2 && dLean > 0.2 { status = "Recomposição: menos gordura, mais músculo"; tone = .good }
+            var m = AdvMetric(title: "Mudança de composição", value: dW.signed(1), unit: "kg em \(Int(days.rounded())) dias", status: status, tone: tone,
+                              detail: "Compara a pesagem de hoje com a de ~4 semanas atrás. A gordura é estimada \(i.measurements.isEmpty ? "pelo IMC, idade e sexo — registre cintura e pescoço para mais precisão" : "com as suas medidas (cintura, pescoço e quadril)"), então use como tendência.")
+            m.rows = [("Gordura", "\(dFat.signed(1)) kg"), ("Massa magra", "\(dLean.signed(1)) kg"), ("Músculo esquelético", "\(dMus.signed(1)) kg"),
+                      ("Ritmo de gordura", "\((dFat / days * 7).signed(2)) kg/semana")]
+            body.append(m)
+        }
         // 11) Peso real (tendência suavizada)
         if let last = ewma.last {
             let weekAgo = ewma.last { $0.date <= last.date.addingTimeInterval(-7 * 86400) }

@@ -85,6 +85,8 @@ struct AnalysisContext {
 // MARK: - Aba Métricas
 
 struct MetricsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @State private var insights: [AdvMetric] = []
     @Query private var profiles: [UserProfile]
     @Query(sort: \WeightEntry.date) private var entries: [WeightEntry]
     @Query private var measurements: [MeasurementEntry]
@@ -105,6 +107,9 @@ struct MetricsView: View {
                 }
             }
             .navigationTitle("Métricas")
+            .task(id: "\(entries.count)|\(measurements.count)|\(entries.last?.kg ?? 0)") {
+                insights = AdvancedMetrics.compute(context: modelContext).first { $0.title == "Corpo" }?.items ?? []
+            }
             .toolbar {
                 Button { showShare = true } label: { Image(systemName: "square.and.arrow.up") }
                     .disabled(entries.isEmpty)
@@ -127,6 +132,10 @@ struct MetricsView: View {
         return ScrollView {
             VStack(spacing: 16) {
                 scoreCard(a).appear()
+                if !insights.isEmpty && category == nil {
+                    SectionHeader(title: "Inteligência corporal", icon: "brain.head.profile")
+                    ForEach(insights) { AdvMetricCard(m: $0) }
+                }
                 categoryPicker.appear(0.05)
                 ForEach(MetricCategory.allCases.filter { category == nil || $0 == category }) { cat in
                     let items = metrics.filter { $0.id.category == cat }

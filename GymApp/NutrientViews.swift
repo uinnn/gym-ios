@@ -101,6 +101,8 @@ struct NutrientsDayCard: View {
 
 struct NutrientDetailView: View {
     let id: NutrientID
+    /// Dia mostrado (o mesmo escolhido na aba Alimentação).
+    var day: Date = .now
     @Environment(\.dismiss) private var dismiss
     @Query private var profiles: [UserProfile]
     @Query(sort: \WeightEntry.date) private var weights: [WeightEntry]
@@ -109,7 +111,9 @@ struct NutrientDetailView: View {
 
     private var ctx: NutrientContext { NutrientContext.make(profiles.first, weights, measurements) }
     private var ref: NutrientRef { id.reference(ctx) }
-    private var todayLogs: [FoodLog] { logs.filter { Calendar.current.isDateInToday($0.date) } }
+    private var todayLogs: [FoodLog] { logs.filter { Calendar.current.isDate($0.date, inSameDayAs: day) } }
+    private var isToday: Bool { Calendar.current.isDateInToday(day) }
+    private var dayLabel: String { isToday ? "hoje" : day.formatted(.dateTime.day().month(.abbreviated)) }
 
     private var todayValue: Double {
         let t = todayLogs
@@ -131,10 +135,33 @@ struct NutrientDetailView: View {
         return out
     }
 
-    private var contributors: [(String, Double)] {
-        var dict: [String: Double] = [:]
-        for l in todayLogs { dict[l.name, default: 0] += id.value(l.nutrients, l.micros ?? .zero, l.extras) }
-        return dict.filter { $0.value > 0 }.sorted { $0.value > $1.value }.prefix(6).map { ($0.key, $0.value) }
+    struct Contribution: Identifiable {
+        var id: String { name }
+        let name: String
+        var amount: Double
+        var grams: Double
+        var meals: Set<Meal>
+    }
+
+    /// Todos os alimentos do dia que têm esse nutriente, do que mais contribuiu para o que menos.
+    private var contributors: [Contribution] {
+        var dict: [String: Contribution] = [:]
+        for l in todayLogs {
+            let v = id.value(l.nutrients, l.micros ?? .zero, l.extras)
+            guard v > 0 else { continue }
+            var c = dict[l.name] ?? Contribution(name: l.name, amount: 0, grams: 0, meals: [])
+            c.amount += v; c.grams += l.grams; c.meals.insert(l.meal)
+            dict[l.name] = c
+        }
+        return dict.values.sorted { $0.amount > $1.amount }
+    }
+
+    /// Quanto cada refeição contribuiu.
+    private var byMeal: [(Meal, Double)] {
+        Meal.allCases.compactMap { m in
+            let v = todayLogs.filter { $0.meal == m }.map { id.value($0.nutrients, $0.micros ?? .zero, $0.extras) }.reduce(0, +)
+            return v > 0 ? (m, v) : nil
+        }
     }
 
     var body: some View {
@@ -146,10 +173,10 @@ struct NutrientDetailView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         hero(value, r).appear()
-                        refCard(value, r, avg: avg).appear(0.05)
-                        if s.count >= 2 { chartCard(s, r).appear(0.1) }
-                        infoCard.appear(0.15)
-                        contributorsCard(value).appear(0.2)
+                        contributorsCard(value, r).appear(0.05)
+                        refCard(value, r, avg: avg).appear(0.1)
+                        if s.count >= 2 { chartCard(s, r).appear(0.15) }
+                        infoCard.appear(0.2)
                         topCard.appear(0.25)
                         Text("Referências para adultos: IOM/NIH (RDA/AI e limite superior tolerável), OMS e Dietary Guidelines. Gestantes, crianças e pessoas com doenças têm necessidades diferentes.")
                             .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
@@ -180,19 +207,56 @@ struct NutrientDetailView: View {
         }
     }
 
-    @ViewBuilder private func contributorsCard(_ value: Double) -> some View {
+    @ViewBuilder private func contributorsCard(_ value: Double, _ r: NutrientRef) -> some View {
         let list = contributors
-        if !list.isEmpty {
-            Card {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Suas fontes hoje").font(.headline)
-                    ForEach(Array(list.enumerated()), id: \.offset) { _, c in
-                        HStack {
-                            Text(c.0).font(.subheadline).lineLimit(1)
-                            Spacer()
-                            Text("\(fmtValue(c.1)) \(id.unit)").font(.caption.monospacedDigit())
+        Card {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("De onde veio \(dayLabel)", systemImage: "list.number").font(.headline)
+                    Spacer()
+                    if !list.isEmpty { Text("\(list.count) alimento(s)").font(.caption).foregroundStyle(.secondary) }
+                }
+                if list.isEmpty {
+                    Text(todayLogs.isEmpty ? "Nenhum alimento registrado \(dayLabel)."
+                         : "Nenhum alimento registrado \(dayLabel) tem \(id.title.lowercased()) informado na tabela de origem.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(list.enumerated()), id: \.element.id) { i, c in
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("\(i + 1)").font(.caption.bold().monospacedDigit()).foregroundStyle(.white)
+                                    .frame(width: 22, height: 22)
+                                    .background(i < 3 ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(Color.secondary.opacity(0.5)), in: Circle())
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(c.name).font(.subheadline.weight(.semibold)).lineLimit(2)
+                                    Text("\(c.grams.fmt(0)) g · \(c.meals.sorted { $0.rawValue < $1.rawValue }.map(\.label).joined(separator: ", "))")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 1) {
+                                    Text("\(fmtValue(c.amount)) \(id.unit)").font(.subheadline.bold().monospacedDigit())
+                                    Text("\(Int((c.amount / max(value, 0.0001) * 100).rounded()))% do dia · \(Int((c.amount / max(r.rec, 0.0001) * 100).rounded()))% da \(id.kind == .limit ? "limite" : "meta")")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                            ProgressBar(progress: c.amount / max(value, 0.0001), tint: i == 0 ? Theme.accent : Theme.accent2, height: 5)
                         }
-                        ProgressBar(progress: c.1 / max(value, 0.0001), tint: Theme.accent, height: 4)
+                    }
+                    let meals = byMeal
+                    if meals.count > 1 {
+                        Divider()
+                        Text("Por refeição").font(.caption.bold()).foregroundStyle(.secondary)
+                        FlowLayout(spacing: 6) {
+                            ForEach(meals, id: \.0) { m, v in
+                                Label("\(m.label) · \(fmtValue(v)) \(id.unit)", systemImage: m.icon)
+                                    .font(.caption.monospacedDigit()).padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(.quaternary.opacity(0.6), in: Capsule())
+                            }
+                        }
+                    }
+                    if id.kind != .limit, value < r.rec, let best = FoodDatabase.shared.topSources(id, limit: 3).first {
+                        Text("Faltam \(fmtValue(r.rec - value)) \(id.unit). Exemplo: \(best.0.name) tem \(fmtValue(best.1)) \(id.unit) por 100 g.")
+                            .font(.caption).foregroundStyle(Theme.accent)
                     }
                 }
             }
@@ -226,7 +290,7 @@ struct NutrientDetailView: View {
                     Image(systemName: id.icon).foregroundStyle(s.0.color)
                     Text(fmtValue(v)).font(.system(size: 34, weight: .bold, design: .rounded))
                         .contentTransition(.numericText())
-                    Text("\(id.unit) hoje").font(.caption).foregroundStyle(.secondary)
+                    Text("\(id.unit) \(dayLabel)").font(.caption).foregroundStyle(.secondary)
                 }
             }
             .frame(width: 170, height: 170)

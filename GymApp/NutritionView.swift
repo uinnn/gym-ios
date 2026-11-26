@@ -6,6 +6,7 @@ enum Diary {
     @MainActor static func log(_ food: FoodItem, grams: Double, meal: Meal, date: Date, in context: ModelContext) {
         let log = FoodLog(date: date, meal: meal, food: food, grams: grams)
         context.insert(log)
+        mergeDuplicates(on: date, in: context)
         HealthSync.shared.saveFood(kcal: log.nutrients.kcal, date: date)
         PartyService.shared.post(.food, "comeu \(food.name) (\(Int(grams)) g · \(Int(log.nutrients.kcal)) kcal)", value: log.nutrients.kcal)
         let id = food.id
@@ -19,6 +20,33 @@ enum Diary {
             s.useCount = 1
             s.lastGrams = grams
             context.insert(s)
+        }
+    }
+
+    /// Mesmo alimento na mesma refeição do mesmo dia vira uma linha só: soma gramas e todos os nutrientes.
+    @MainActor static func mergeDuplicates(on day: Date, in context: ModelContext) {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: day)
+        guard let end = cal.date(byAdding: .day, value: 1, to: start) else { return }
+        let logs = (try? context.fetch(FetchDescriptor<FoodLog>(predicate: #Predicate { $0.date >= start && $0.date < end },
+                                                               sortBy: [SortDescriptor(\.date)]))) ?? []
+        let groups = Dictionary(grouping: logs) { l in "\(l.mealRaw)|\(l.foodID.isEmpty ? l.name.lowercased() : l.foodID)" }
+        for list in groups.values where list.count > 1 {
+            let keep = list[0]                       // o primeiro registro fica (horário mais cedo)
+            var n = keep.nutrients, grams = keep.grams
+            var m = keep.micros
+            var e = keep.extras
+            for other in list.dropFirst() {
+                grams += other.grams
+                n = n + other.nutrients
+                if let om = other.micros { m = (m ?? .zero) + om }
+                for (k, v) in other.extras { e[k, default: 0] += v }
+                context.delete(other)
+            }
+            keep.grams = grams
+            keep.nutrients = n
+            keep.micros = m
+            if !e.isEmpty { keep.extras = e }
         }
     }
 
@@ -133,6 +161,10 @@ struct NutritionView: View {
                 }
             }
             .sheet(isPresented: $showAssistant) { AssistantView() }
+            // junta repetições que chegaram de outros lugares (site, backup, registros antigos)
+            .onChange(of: "\(day.timeIntervalSince1970)|\(dayLogs.count)", initial: true) { _, _ in
+                Diary.mergeDuplicates(on: day, in: context)
+            }
             .navigationTitle("Alimentação")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -268,6 +300,7 @@ struct NutritionView: View {
                             Button("Duplicar", systemImage: "plus.square.on.square") {
                                 let c = FoodLog(date: log.date, meal: log.meal, food: log.asFood, grams: log.grams)
                                 context.insert(c)
+                                Diary.mergeDuplicates(on: log.date, in: context)
                             }
                             Button("Apagar", systemImage: "trash", role: .destructive) {
                                 withAnimation { context.deleteUndoable(log, "(log.name) apagado") }
@@ -295,6 +328,7 @@ struct NutritionView: View {
                 let date = cal.date(byAdding: .day, value: 1, to: l.date) ?? day
                 context.insert(FoodLog(date: date, meal: l.meal, food: l.asFood, grams: l.grams))
             }
+            if let d = src.first.flatMap({ cal.date(byAdding: .day, value: 1, to: $0.date) }) { Diary.mergeDuplicates(on: d, in: context) }
         }
     }
 
@@ -573,6 +607,7 @@ struct EditLogSheet: View {
                     Button("Duplicar registro", systemImage: "plus.square.on.square") {
                         save()
                         context.insert(FoodLog(date: log.date, meal: log.meal, food: log.asFood, grams: log.grams))
+                        Diary.mergeDuplicates(on: log.date, in: context)
                         dismiss()
                     }
                     Button("Apagar", systemImage: "trash", role: .destructive) { confirmDelete = true }

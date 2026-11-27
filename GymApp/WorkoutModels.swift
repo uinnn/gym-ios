@@ -468,8 +468,19 @@ enum WorkoutMath {
         }
         return result
     }
+    /// "45s", "12min 07s", "1h 05min 07s".
     static func durationText(_ t: TimeInterval) -> String {
-        let m = Int(t) / 60
-        return m >= 60 ? "\(m / 60)h \(m % 60)min" : "\(m) min"
+        let total = max(0, Int(t))
+        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
+        if h > 0 { return String(format: "%dh %02dmin %02ds", h, m, s) }
+        if m > 0 { return String(format: "%dmin %02ds", m, s) }
+        return "\(s)s"
+    }
+
+    /// Relógio para o treino em andamento: "07:42" ou "1:05:07".
+    static func clockText(_ t: TimeInterval) -> String {
+        let total = max(0, Int(t))
+        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
     }
 }

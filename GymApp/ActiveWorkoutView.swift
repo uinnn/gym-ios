@@ -80,9 +80,11 @@ struct ActiveWorkoutView: View {
                                 .transition(.asymmetric(insertion: .scale(scale: 0.95).combined(with: .opacity), removal: .opacity))
                         }
                         Button { showPicker = true } label: {
-                            Label("Adicionar exercício", systemImage: "plus.circle.fill")
-                                .font(.headline).frame(maxWidth: .infinity).padding()
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
+                            Label("Adicionar exercício", systemImage: "plus")
+                                .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent)
+                                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(Theme.accent.opacity(0.5), style: StrokeStyle(lineWidth: 1.2, dash: [6, 5])))
                         }
                         .buttonStyle(PressableStyle())
                         Button("Cancelar treino", role: .destructive) { confirmCancel = true }
@@ -203,35 +205,35 @@ struct ActiveWorkoutView: View {
     // MARK: Cabeçalho
 
     private var header: some View {
-        Card {
-            TimelineView(.periodic(from: .now, by: 1)) { _ in
-                let done = exercises.flatMap(\.workSets)
-                let total = exercises.map { $0.sets.filter { $0.kind != .warmup }.count }.reduce(0, +)
-                VStack(spacing: 10) {
-                HStack {
-                    stat("Duração", WorkoutMath.durationText(session.duration), "timer")
-                    Spacer()
-                    stat("Volume", "\(done.map(\.volume).reduce(0, +).fmt(0)) kg", "scalemass.fill")
-                    Spacer()
-                    stat("Séries", "\(done.count)", "checkmark.circle.fill")
-                    Spacer()
-                    stat("kcal", WorkoutMath.kcal(session).fmt(0), "flame.fill")
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let done = exercises.flatMap(\.workSets)
+            let total = exercises.map { $0.sets.filter { $0.kind != .warmup }.count }.reduce(0, +)
+            VStack(spacing: 10) {
+                Text(WorkoutMath.clockText(session.duration))
+                    .font(.system(size: 52, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .contentTransition(.numericText())
+                HStack(spacing: 18) {
+                    miniStat("\(done.map(\.volume).reduce(0, +).fmt(0)) kg", "volume")
+                    miniStat("\(done.count)\(total > 0 ? "/\(total)" : "")", "séries")
+                    miniStat(WorkoutMath.kcal(session).fmt(0), "kcal")
                 }
                 if total > 0 {
-                    ProgressBar(progress: Double(done.count) / Double(total), tint: Theme.good, height: 6)
-                    Text(done.count >= total ? "Tudo feito! Toque em Finalizar 🎉" : "\(done.count) de \(total) séries · \(exercises.filter { e in e.sets.contains { !$0.done } }.count) exercício(s) pela frente")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
+                    ProgressBar(progress: Double(done.count) / Double(total), tint: Theme.good, height: 4)
+                        .padding(.horizontal, 24)
+                    if done.count >= total {
+                        Text("Tudo feito! Toque em Finalizar 🎉").font(.caption).foregroundStyle(Theme.good)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         }
     }
 
-    private func stat(_ t: String, _ v: String, _ icon: String) -> some View {
-        VStack(spacing: 3) {
-            Image(systemName: icon).foregroundStyle(Theme.accent).font(.caption)
-            Text(v).font(.subheadline.bold().monospacedDigit()).contentTransition(.numericText())
-            Text(t).font(.caption2).foregroundStyle(.secondary)
+    private func miniStat(_ v: String, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(v).font(.subheadline.weight(.semibold)).monospacedDigit().contentTransition(.numericText())
+            Text(label).font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -324,26 +326,18 @@ struct ActiveWorkoutView: View {
                             .font(.caption).lineLimit(1...3).padding(8)
                             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
                     }
-                    if let x, !isCardio, let top = e.doneSets.map(\.kg).max(),
-                       x.load.factor != 1 || x.load.bodyFraction > 0 || x.load.perSide {
-                        Text("≈ \(x.load.real(kg: top, bodyKg: session.bodyKg).fmt(1)) kg reais movidos na série mais pesada")
-                            .font(.caption2).foregroundStyle(Theme.accent2)
-                    }
-                    if let hint = e.hint, !isCardio {
-                        Label(hint, systemImage: "chart.line.uptrend.xyaxis").font(.caption2.bold()).foregroundStyle(Theme.accent)
-                    }
-                    if let best, !isCardio {
-                        Text("Recorde: \(best.kg.fmt(1)) kg × \(best.reps) · 1RM estimado \(best.e1RM.fmt(1)) kg")
-                            .font(.caption2).foregroundStyle(Theme.excellent)
+                    if !isCardio, let line = e.hint.map({ ("chart.line.uptrend.xyaxis", $0) })
+                        ?? best.map({ ("trophy", "Recorde \($0.kg.fmt(1)) kg × \($0.reps) · 1RM \($0.e1RM.fmt(1)) kg") }) {
+                        Label(line.1, systemImage: line.0).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                     }
                     HStack {
-                        Text("Série").frame(width: 40, alignment: .leading)
-                        Text("Anterior").frame(maxWidth: .infinity, alignment: .leading)
-                        Text(isCardio ? "min" : "kg").frame(width: 64)
-                        Text(isCardio ? "km" : "reps").frame(width: 56)
-                        Image(systemName: "checkmark").frame(width: 44)
+                        Text("SÉRIE").frame(width: 40, alignment: .leading)
+                        Text("ANTERIOR").frame(maxWidth: .infinity, alignment: .leading)
+                        Text(isCardio ? "MIN" : "KG").frame(width: 64)
+                        Text(isCardio ? "KM" : "REPS").frame(width: 56)
+                        Color.clear.frame(width: 44, height: 1)
                     }
-                    .font(.caption2.bold()).foregroundStyle(.secondary)
+                    .font(.system(size: 10, weight: .semibold)).tracking(0.6).foregroundStyle(.tertiary)
 
                     ForEach(e.sets) { s in
                         let i = e.sets.firstIndex { $0.id == s.id } ?? 0
@@ -357,24 +351,29 @@ struct ActiveWorkoutView: View {
                             .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
                     }
                     // Barra de ações das séries
-                    HStack(spacing: 8) {
+                    HStack(spacing: 0) {
                         Button { addSet(ex) } label: {
-                            Label("Série", systemImage: "plus").font(.subheadline.bold()).frame(maxWidth: .infinity)
+                            Label("Série", systemImage: "plus").frame(maxWidth: .infinity, minHeight: 36)
                         }
-                        .buttonStyle(.borderedProminent).tint(Theme.accent)
+                        .foregroundStyle(Theme.accent)
+                        Divider().frame(height: 18)
                         Button { removeLastSet(ex) } label: {
-                            Label("Série", systemImage: "minus").font(.subheadline.bold()).frame(maxWidth: .infinity)
+                            Label("Série", systemImage: "minus").frame(maxWidth: .infinity, minHeight: 36)
                         }
-                        .buttonStyle(.bordered)
+                        .foregroundStyle(.secondary)
                         .disabled(e.sets.isEmpty)
                         if !isCardio {
+                            Divider().frame(height: 18)
                             Button { addDrop(ex) } label: {
-                                Label("Drop", systemImage: "arrow.down.right").font(.subheadline.bold()).frame(maxWidth: .infinity)
+                                Label("Drop", systemImage: "arrow.down.right").frame(maxWidth: .infinity, minHeight: 36)
                             }
-                            .buttonStyle(.bordered).tint(Theme.excellent)
+                            .foregroundStyle(.secondary)
                             .disabled(e.sets.isEmpty)
                         }
                     }
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 } else {
                     // Resumo do exercício recolhido
                     Text(e.sets.filter(\.done).map { isCardio ? "\($0.minutes.fmt(0))min" : "\($0.kg.fmt(1))×\($0.reps)" }.joined(separator: "  ·  "))
@@ -451,8 +450,8 @@ struct ActiveWorkoutView: View {
                 field(value: set.kg, key: FieldKey(set: s.id, kind: .kg))
                 LiveIntField(value: set.reps)
                     .focused($focus, equals: FieldKey(set: s.id, kind: .reps))
-                    .frame(width: 56, height: 44)
-                    .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+                    .frame(width: 56, height: 40)
+                    .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
             Button {
                 withAnimation(.spring(duration: 0.3, bounce: 0.4)) { set.wrappedValue.done.toggle() }
@@ -472,8 +471,8 @@ struct ActiveWorkoutView: View {
             }
             .buttonStyle(.tap)
         }
-        .padding(.vertical, 3)
-        .background(s.done ? Theme.good.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .padding(.vertical, 2)
+        .background(s.done ? Theme.good.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(alignment: .topTrailing) {
             if isPR {
                 Text("🏆 PR").font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2)
@@ -624,8 +623,8 @@ struct ActiveWorkoutView: View {
     private func field(value: Binding<Double>, key: FieldKey, width: CGFloat = 64) -> some View {
         LiveNumberField(value: value)
             .focused($focus, equals: key)
-            .frame(width: width, height: 44)
-            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+            .frame(width: width, height: 40)
+            .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     // MARK: Academia lotada

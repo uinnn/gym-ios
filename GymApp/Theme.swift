@@ -226,7 +226,7 @@ final class ThemeStore {
 
     private init() {
         paletteID = d.string(forKey: "paletteID") ?? "mint"
-        appearanceRaw = d.string(forKey: "appearance") ?? Appearance.system.rawValue
+        appearanceRaw = d.string(forKey: "appearance") ?? Appearance.light.rawValue
         backgroundRaw = d.string(forKey: "background") ?? BackgroundStyle.spotlight.rawValue
         cardRaw = d.string(forKey: "card") ?? CardStyle.elevated.rawValue
         animations = d.object(forKey: "animations") as? Bool ?? true
@@ -252,7 +252,7 @@ final class ThemeStore {
         return Palette.all.first { $0.id == paletteID } ?? Palette.all[0]
     }
     var appearance: Appearance {
-        get { Appearance(rawValue: appearanceRaw) ?? .system }
+        get { Appearance(rawValue: appearanceRaw) ?? .light }
         set { appearanceRaw = newValue.rawValue }
     }
     var background: BackgroundStyle {
@@ -316,7 +316,7 @@ struct ThemePreset: Identifiable {
     var density: Density = .normal
 
     static let all: [ThemePreset] = [
-        ThemePreset(id: "clean", name: "Clean", palette: "mint", appearance: .system, background: .spotlight, card: .elevated, font: .rounded, header: .caps),
+        ThemePreset(id: "clean", name: "Clean", palette: "mint", appearance: .light, background: .spotlight, card: .elevated, font: .rounded, header: .caps),
         ThemePreset(id: "minimal", name: "Minimalista", palette: "graphite", appearance: .light, background: .solid, card: .minimal, font: .system, header: .caps, corner: 14, shadows: false),
         ThemePreset(id: "night", name: "Noturno", palette: "indigo", appearance: .midnight, background: .dots, card: .solid, font: .rounded, header: .bar),
         ThemePreset(id: "amoled", name: "AMOLED Neon", palette: "neon", appearance: .amoled, background: .solid, card: .outline, font: .rounded, header: .bar, corner: 18, shadows: false),

@@ -22,7 +22,7 @@ const ACCENTS = [["#ff3c84", "#8c50f1", "#ff8a4c"], ["#4fd69c", "#4d9eff", "#2bd
   ["#ff8c4d", "#f24d8c", "#f5b83d"], ["#a885ff", "#f280d9", "#5ec8f5"], ["#f5b83d", "#ff8a4c", "#ff3c84"],
   ["#ff4d1a", "#ffb300", "#ff3c84"], ["#8c99ad", "#59667a", "#b3c0d1"]];
 function applyTheme() {
-  const t = localStorage.getItem("theme") || "dark";
+  const t = localStorage.getItem("theme") || "light";
   const dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   const [a, b, c] = ACCENTS[+(localStorage.getItem("accent") || 0)] || ACCENTS[0];
@@ -579,7 +579,7 @@ function viewMetricas() {
 function viewConta() {
   const u = auth.currentUser;
   const providers = (u?.providerData || []).map((p) => p.providerId);
-  const theme = localStorage.getItem("theme") || "dark";
+  const theme = localStorage.getItem("theme") || "light";
   const accent = +(localStorage.getItem("accent") || 0);
   return shell(`
     <div class="grid g2 stagger">
@@ -592,7 +592,7 @@ function viewConta() {
         <div id="accmsg"></div>
         <button class="btn danger block" id="logout" style="margin-top:14px">Sair</button></div>
       <div class="card">${head("Aparência")}
-        <div class="field"><label>Tema</label><div class="seg" id="theme">${[["dark", "Escuro"], ["light", "Claro"], ["system", "Sistema"]].map(([v, l]) => `<button data-t="${v}" class="${theme === v ? "on" : ""}">${l}</button>`).join("")}</div></div>
+        <div class="field"><label>Tema</label><div class="seg" id="theme">${[["light", "Claro"], ["dark", "Escuro"], ["system", "Sistema"]].map(([v, l]) => `<button data-t="${v}" class="${theme === v ? "on" : ""}">${l}</button>`).join("")}</div></div>
         <div class="field"><label>Cor</label><div class="swatches">${ACCENTS.map(([a, b], i) => `<div class="swatch ${accent === i ? "on" : ""}" data-a="${i}" style="background:linear-gradient(135deg,${a},${b})"></div>`).join("")}</div></div></div>
       <div class="card">${head("Meu personal trainer")}${studentSection()}</div>
       <div class="card">${head("Sou personal trainer")}${trainerSection()}</div>

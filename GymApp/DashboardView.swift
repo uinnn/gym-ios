@@ -29,12 +29,16 @@ struct DashboardView: View {
                         header.appear()
                         hero.appear(0.05)
                         quickActions.appear(0.1)
-                        HealthTodayCard().appear(0.12)
-                        InsightsHubCard().appear(0.13)
+                        HealthTodayCard()
+                            .collapsible("dash.health", "Saúde hoje", icon: "heart.fill", summary: "Passos, calorias ativas, frequência cardíaca e sono", tint: Theme.danger)
+                            .appear(0.12)
+                        InsightsHubCard()
+                            .collapsible("dash.insights", "Insights", icon: "sparkles", summary: "Prontidão, ajuste de calorias, métricas avançadas, resumo semanal e mais")
+                            .appear(0.13)
                         if let ctx {
                             let a = ctx.current
                             scoreStrip(a).appear(0.15)
-                            SectionHeader(title: "Destaques", icon: "sparkles")
+                            VStack(spacing: 12) {
                             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                                       spacing: 12) {
                                 ForEach(Array(MetricID.highlights.enumerated()), id: \.element) { i, id in
@@ -47,10 +51,25 @@ struct DashboardView: View {
                                     }
                                 }
                             }
-                            needsCard(a).appear(0.2)
+                            }
+                            .collapsible("dash.highlights", "Destaques", icon: "square.grid.2x2.fill",
+                                         summary: "IMC \(a[.bmi]?.display ?? "—") · Gordura \(a[.bodyFat]?.display ?? "—")% · Músculo \(a[.smm]?.display ?? "—") kg")
+                            needsCard(a)
+                                .collapsible("dash.needs", "Necessidades do dia", icon: "flame.fill",
+                                             summary: "\(a[.targetCalories]?.display ?? "—") kcal · \(a[.proteinNeed]?.display ?? "—") g de proteína · \(a[.waterIntake]?.display ?? "—") L de água", tint: Theme.warm)
+                                .appear(0.2)
                         }
-                        if entries.count >= 2 { trendCard.appear(0.25) }
-                        if let goal = profiles.first?.goalWeightKg { ForecastCard(weights: entries, goal: goal).appear(0.27) }
+                        if entries.count >= 2 {
+                            trendCard
+                                .collapsible("dash.trend", "Tendência do peso", icon: "chart.xyaxis.line",
+                                             summary: entries.count >= 2 ? "\((entries[0].kg - entries[1].kg).signed(2)) kg desde a pesagem anterior" : "")
+                                .appear(0.25)
+                        }
+                        if let goal = profiles.first?.goalWeightKg {
+                            ForecastCard(weights: entries, goal: goal)
+                                .collapsible("dash.forecast", "Previsão da meta", icon: "flag.checkered", summary: "Quando você chega aos \(goal.fmt(1)) kg no ritmo atual")
+                                .appear(0.27)
+                        }
                     }
                     .padding()
                 }

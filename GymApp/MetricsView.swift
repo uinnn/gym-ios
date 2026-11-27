@@ -133,8 +133,9 @@ struct MetricsView: View {
             VStack(spacing: 16) {
                 scoreCard(a).appear()
                 if !insights.isEmpty && category == nil {
-                    SectionHeader(title: "Inteligência corporal", icon: "brain.head.profile")
-                    ForEach(insights) { AdvMetricCard(m: $0) }
+                    VStack(spacing: 12) { ForEach(insights) { AdvMetricCard(m: $0) } }
+                        .collapsible("body.insights", "Inteligência corporal", icon: "brain.head.profile",
+                                     summary: insights.prefix(2).map { "\($0.title): \($0.value) \($0.unit)" }.joined(separator: " · "))
                 }
                 categoryPicker.appear(0.05)
                 ForEach(MetricCategory.allCases.filter { category == nil || $0 == category }) { cat in

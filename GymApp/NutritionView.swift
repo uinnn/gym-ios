@@ -148,14 +148,23 @@ struct NutritionView: View {
                             WaterCard(day: day, total: dayWater, goal: targets.water)
                             FastingCard()
                         }
+                        .collapsible("food.water", "Água e jejum", icon: "drop.fill",
+                                     summary: "\(Int(dayWater)) de \(Int(targets.water)) ml de água", tint: Theme.info)
                         .appear(0.1)
                         .onAppear { WaterReminder.reschedule(todayMl: todayWater, targetMl: targets.water) }
                         .onChange(of: todayWater) { _, ml in WaterReminder.reschedule(todayMl: ml, targetMl: targets.water) }
                         QuickLogBar(day: day).appear(0.11)
                         ForEach(Array(Meal.allCases.enumerated()), id: \.element) { i, meal in
-                            mealCard(meal).appear(0.12 + Double(i) * 0.03)
+                            let ml = dayLogs.filter { $0.meal == meal }
+                            mealCard(meal)
+                                .collapsible("food.meal.\(meal.rawValue)", meal.label, icon: meal.icon,
+                                             summary: ml.isEmpty ? "Nada registrado · meta \(Int(targets.kcal * meal.share)) kcal"
+                                                 : "\(ml.count) item(ns) · \(Int(ml.map(\.nutrients.kcal).reduce(0, +))) de \(Int(targets.kcal * meal.share)) kcal")
+                                .appear(0.12 + Double(i) * 0.03)
                         }
-                        microsCard.appear(0.3)
+                        microsCard
+                            .collapsible("food.micros", "Nutrientes do dia", icon: "atom", summary: "Vitaminas, minerais e gorduras: toque para ver o que está baixo")
+                            .appear(0.3)
                     }
                     .padding()
                 }

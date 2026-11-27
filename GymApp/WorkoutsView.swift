@@ -47,11 +47,19 @@ struct WorkoutsView: View {
                         weekCard.appear(0.05)
                         if let next = nextRoutine, running == nil { nextCard(next).appear(0.1) }
                         quickStart.appear(0.12)
-                        CardioCard().appear(0.14)
+                        CardioCard()
+                            .collapsible("train.cardio", "Cardio", icon: "figure.run", summary: "Corrida, caminhada e bike com GPS, ritmo e calorias")
+                            .appear(0.14)
                         StretchCard().appear(0.15)
-                        PeriodizationCard(sessions: finished).appear(0.16)
+                        PeriodizationCard(sessions: finished)
+                            .collapsible("train.period", "Periodização", icon: "chart.bar.fill", summary: "Volume por semana, fases e sinais de deload")
+                            .appear(0.16)
                         routinesSection
-                        if !finished.isEmpty { historySection }
+                        if !finished.isEmpty {
+                            VStack(spacing: 12) { historySection }
+                                .collapsible("train.history", "Histórico", icon: "clock.arrow.circlepath",
+                                             summary: "\(finished.count) treino(s) · último \(finished.first.map { $0.start.formatted(.relative(presentation: .named)) } ?? "—")")
+                        }
                     }
                     .padding()
                 }

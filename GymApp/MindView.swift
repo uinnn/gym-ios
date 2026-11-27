@@ -63,15 +63,24 @@ struct MindView: View {
                     VStack(spacing: 16) {
                         checkInCard(todayMood).appear()
                         quickGrid.appear(0.05)
-                        if !moods.isEmpty { moodWeekCard.appear(0.08) }
-                        sleepCard.appear(0.1)
-                        insightsCard(ins).appear(0.12)
-                        HabitsCard().appear(0.14)
-                        practiceCard.appear(0.16)
-                        breathingList.appear(0.18)
-                        assessmentCard.appear(0.2)
-                        gratitudeCard.appear(0.22)
-                        reminderCard.appear(0.24)
+                        if !moods.isEmpty {
+                            moodWeekCard.collapsible("mind.week", "Humor da semana", icon: "face.smiling",
+                                                     summary: "Média \((Double(moods.suffix(7).map(\.mood).reduce(0, +)) / Double(max(1, min(7, moods.count)))).fmt(1)) de 5 nos últimos registros")
+                                .appear(0.08)
+                        }
+                        sleepCard.collapsible("mind.sleep", "Sono", icon: "bed.double.fill",
+                                              summary: sleeps.last.map { "Última noite: \($0.hours.fmt(1)) h · qualidade \($0.quality)/5" } ?? "Registre como você dormiu", tint: Theme.excellent)
+                            .appear(0.1)
+                        insightsCard(ins).collapsible("mind.insights", "Descobertas", icon: "lightbulb.fill",
+                                                      summary: ins.isEmpty ? "Aparecem conforme você registra" : "\(ins.count) padrão(ões) encontrados nos seus dados", tint: Theme.warm)
+                            .appear(0.12)
+                        HabitsCard().collapsible("mind.habits", "Hábitos", icon: "checkmark.circle.fill", summary: "Seus hábitos do dia e sequências").appear(0.14)
+                        practiceCard.collapsible("mind.practice", "Práticas", icon: "leaf.fill", summary: "Respiração, meditação, foco e ar livre").appear(0.16)
+                        breathingList.collapsible("mind.breathing", "Respiração guiada", icon: "wind", summary: "Exercícios para acalmar, focar e dormir").appear(0.18)
+                        assessmentCard.collapsible("mind.assess", "Avaliações", icon: "list.clipboard.fill", summary: "Questionários de humor, ansiedade e estresse").appear(0.2)
+                        gratitudeCard.collapsible("mind.gratitude", "Gratidão", icon: "heart.text.square.fill",
+                                                  summary: gratitude.last.map { "Último registro \($0.date.formatted(.relative(presentation: .named)))" } ?? "Anote 3 coisas boas do dia").appear(0.22)
+                        reminderCard.collapsible("mind.reminder", "Lembretes", icon: "bell.fill", summary: "Horário do check-in diário").appear(0.24)
                         CrisisCard().appear(0.26)
                     }
                     .padding()

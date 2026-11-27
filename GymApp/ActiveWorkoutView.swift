@@ -218,8 +218,15 @@ struct ActiveWorkoutView: View {
                     miniStat(WorkoutMath.kcal(session).fmt(0), "kcal")
                 }
                 if total > 0 {
-                    ProgressBar(progress: Double(done.count) / Double(total), tint: Theme.good, height: 4)
-                        .padding(.horizontal, 24)
+                    let pct = min(100, Int((Double(done.count) / Double(total) * 100).rounded()))
+                    HStack(spacing: 10) {
+                        ProgressBar(progress: Double(done.count) / Double(total), tint: Theme.good, height: 4)
+                        Text("\(pct)%").font(.caption.weight(.semibold)).monospacedDigit()
+                            .foregroundStyle(pct >= 100 ? Theme.good : .secondary)
+                            .contentTransition(.numericText())
+                            .frame(minWidth: 36, alignment: .trailing)
+                    }
+                    .padding(.horizontal, 24)
                     if done.count >= total {
                         Text("Tudo feito! Toque em Finalizar 🎉").font(.caption).foregroundStyle(Theme.good)
                     }
